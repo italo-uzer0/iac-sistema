@@ -141,6 +141,36 @@
     }
   };
 
+  /* ------------------------------------------------ whatsapp helpers ----- */
+  function telDigitos(subId) {
+    var s = A.cache.subById && A.cache.subById[subId];
+    var dig = String((s && s.telefone) || '').replace(/\D/g, '');
+    if (!dig) return null;
+    if (dig.length === 10) dig = '1' + dig;
+    return dig;
+  }
+  function montarEsqueminha(wo) {
+    var guyLink = A.PAGES + 'guy.html?t=' + wo.token;
+    var linhas = [
+      A.subNome(wo.sub_id) + ' - ' + A.fmtDataDia(wo.data),
+      '',
+      '⏰ ' + (wo.hora || 'combinar'),
+      '📍 ' + [wo.endereco, wo.cidade_st].filter(Boolean).join(', '),
+      '🔧 ' + (wo.servico || ''),
+      '💰 Repasse: ' + (wo.valor_repasse ? A.money(wo.valor_repasse) + ' (total)' : 'a combinar'),
+      '',
+      '✅ Checklist + fotos aqui:',
+      guyLink
+    ];
+    if (wo.obs) linhas.push('', '📝 Obs: ' + wo.obs);
+    return linhas.join('\n');
+  }
+  function waUrl(wo) {
+    var dig = telDigitos(wo.sub_id);
+    if (!dig) return null;
+    return 'https://wa.me/' + dig + '?text=' + encodeURIComponent(montarEsqueminha(wo));
+  }
+
   A.pages.wo = {
     render: function (root, args, query) {
       if (args && args[0] === 'nova') return renderNova(root, query || {});
@@ -218,6 +248,15 @@
           aplicar();
         });
       });
+      box.querySelectorAll('[data-wa]').forEach(function (btn) {
+        btn.addEventListener('click', function (ev) {
+          ev.preventDefault(); ev.stopPropagation();
+          var w = wos.filter(function (x) { return x.id === btn.getAttribute('data-wa'); })[0];
+          var url = w && waUrl(w);
+          if (url) window.open(url, '_blank');
+          else A.toast('Sub sem telefone cadastrado', 'err');
+        });
+      });
     }
 
     document.getElementById('wf-sub').addEventListener('change', function (ev) { fFiltro.sub = ev.target.value; aplicar(); });
@@ -237,6 +276,7 @@
         '<span class="muted" style="font-size:12px">' + p.done + '/' + p.total + '</span></div>' : '') +
       '<div class="row"><span class="vl" style="font-weight:800;color:var(--warm)">Repasse: ' + A.money(w.valor_repasse) + '</span>' +
       '<span class="grow"></span>' +
+      (telDigitos(w.sub_id) ? '<button class="btn green sm" data-wa="' + A.esc(w.id) + '" style="min-height:30px;padding:3px 10px;font-size:12px">WhatsApp</button>' : '') +
       (w.valor_repasse
         ? (pagoOk ? '<span class="badge green">pago ao sub</span>'
           : Number(w.pago_ao_sub || 0) > 0 ? '<span class="badge orange">parcial ' + A.money(w.pago_ao_sub) + '</span>'
@@ -287,10 +327,17 @@
       '</div>' +
       '<hr class="sep"/>' +
       '<div class="row">' +
+      (waUrl(wo)
+        ? '<a class="btn green sm" id="w-wa" href="' + A.esc(waUrl(wo)) + '" target="_blank" rel="noopener">' +
+        A.icon('phone', 16) + ' Enviar pro ' + A.esc(A.subNome(wo.sub_id)) + ' no WhatsApp</a>'
+        : '<button class="btn green sm" disabled title="sub sem telefone cadastrado">' +
+        A.icon('phone', 16) + ' WhatsApp — ' + A.esc(A.subNome(wo.sub_id)) + ' sem telefone</button>') +
       '<button class="btn sec sm" id="w-copy-link">' + A.icon('copy', 16) + ' Link do guy</button>' +
-      '<button class="btn sm" id="w-copy-esq">' + A.icon('phone', 16) + ' Esqueminha WhatsApp</button>' +
+      '<button class="btn sm" id="w-copy-esq">' + A.icon('copy', 16) + ' Copiar esqueminha</button>' +
       (wo.job_id ? '<a class="btn sec sm" href="#/jobs/' + A.esc(wo.job_id) + '">Ver job</a>' : '') +
-      '</div></div>' +
+      '</div>' +
+      (waUrl(wo) ? '' : '<div class="muted" style="margin-top:6px">Cadastra o telefone do sub (tabela subs) pra habilitar o envio direto no WhatsApp.</div>') +
+      '</div>' +
 
       '<div class="card"><h3>' + A.icon('check', 18) + ' Checklist <span class="grow"></span><span class="muted" id="w-prog" style="font-weight:400"></span></h3>' +
       '<div id="w-chk"></div>' +
@@ -486,19 +533,7 @@
       A.copiar(guyLink, 'Link do guy copiado!');
     });
     document.getElementById('w-copy-esq').addEventListener('click', function () {
-      var linhas = [
-        A.subNome(wo.sub_id) + ' - ' + A.fmtDataDia(wo.data),
-        '',
-        '⏰ ' + (wo.hora || 'combinar'),
-        '📍 ' + [wo.endereco, wo.cidade_st].filter(Boolean).join(', '),
-        '🔧 ' + (wo.servico || ''),
-        '💰 Repasse: ' + (wo.valor_repasse ? A.money(wo.valor_repasse) + ' (total)' : 'a combinar'),
-        '',
-        '✅ Checklist + fotos aqui:',
-        guyLink
-      ];
-      if (wo.obs) linhas.push('', '📝 Obs: ' + wo.obs);
-      A.copiar(linhas.join('\n'), 'Esqueminha copiado!');
+      A.copiar(montarEsqueminha(wo), 'Esqueminha copiado!');
     });
 
     // ---------- excluir ----------

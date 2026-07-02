@@ -27,6 +27,17 @@
       });
   }
 
+  // autoscroll das colunas quando arrasta perto da borda (desktop + mobile)
+  function kanbanAutoscroll(kb, x, y) {
+    if (!kb) return;
+    var r = kb.getBoundingClientRect();
+    var M = 70, S = 24;
+    if (x < r.left + M) kb.scrollLeft -= S;
+    else if (x > r.right - M) kb.scrollLeft += S;
+    if (y < 110) window.scrollBy(0, -S);
+    else if (y > window.innerHeight - 110) window.scrollBy(0, S);
+  }
+
   function desenharKanban(root, jobs) {
     var statuses = A.JOB_STATUSES.slice();
     jobs.forEach(function (j) {
@@ -43,6 +54,86 @@
       '</select></div>' +
       '<div class="kanban" id="kanban"></div>';
 
+    var dragId = null;       // id do card sendo arrastado (HTML5 DnD)
+    var clickSupresso = false; // suprime o click fantasma depois de um touch-drag
+
+    function byId(id) { return jobs.filter(function (j) { return j.id === id; })[0]; }
+
+    function mover(job, novo) {
+      if (!job || !novo || novo === job.status) return;
+      A.sb.from('jobs').update({ status: novo }).eq('id', job.id).then(function (r) {
+        if (r.error) return A.toastErr(r.error);
+        job.status = novo;
+        A.toast('Movido pra ' + novo, 'ok');
+        aplicar();
+      });
+    }
+
+    function limparHints() {
+      document.querySelectorAll('.kcol.drop-hint').forEach(function (c) { c.classList.remove('drop-hint'); });
+    }
+
+    // long-press (400ms) inicia drag no touch, com clone seguindo o dedo
+    function ligarTouchDrag(el) {
+      var timer = null, clone = null, ativo = false, alvo = null, sx = 0, sy = 0;
+      el.addEventListener('touchstart', function (ev) {
+        if (ev.touches.length !== 1) return;
+        var t = ev.touches[0];
+        sx = t.clientX; sy = t.clientY; ativo = false;
+        timer = setTimeout(function () { timer = null; ativo = true; iniciar(t); }, 400);
+      }, { passive: true });
+      el.addEventListener('touchmove', function (ev) {
+        var t = ev.touches[0];
+        if (!ativo) {
+          // usuario esta rolando a tela -> cancela o long-press
+          if (timer && (Math.abs(t.clientX - sx) > 10 || Math.abs(t.clientY - sy) > 10)) {
+            clearTimeout(timer); timer = null;
+          }
+          return;
+        }
+        ev.preventDefault();
+        arrastar(t);
+      }, { passive: false });
+      function fim() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (!ativo) return;
+        ativo = false;
+        if (clone) { clone.remove(); clone = null; }
+        el.classList.remove('dragging');
+        limparHints();
+        var st = alvo ? alvo.getAttribute('data-st') : null;
+        alvo = null;
+        clickSupresso = true;
+        setTimeout(function () { clickSupresso = false; }, 350);
+        if (st) mover(byId(el.getAttribute('data-id')), st);
+      }
+      el.addEventListener('touchend', fim);
+      el.addEventListener('touchcancel', fim);
+      function iniciar(t) {
+        var r = el.getBoundingClientRect();
+        clone = el.cloneNode(true);
+        clone.className = 'kcard drag-ghost';
+        clone.style.width = r.width + 'px';
+        document.body.appendChild(clone);
+        el.classList.add('dragging');
+        if (navigator.vibrate) { try { navigator.vibrate(25); } catch (e) { } }
+        arrastar(t);
+      }
+      function arrastar(t) {
+        if (!clone) return;
+        clone.style.left = (t.clientX - clone.offsetWidth / 2) + 'px';
+        clone.style.top = (t.clientY - 34) + 'px';
+        kanbanAutoscroll(document.getElementById('kanban'), t.clientX, t.clientY);
+        var under = document.elementFromPoint(t.clientX, t.clientY);
+        var col = under && under.closest ? under.closest('.kcol') : null;
+        if (col !== alvo) {
+          limparHints();
+          alvo = col;
+          if (col) col.classList.add('drop-hint');
+        }
+      }
+    }
+
     function aplicar() {
       var b = kFiltro.busca.toLowerCase();
       var vis = jobs.filter(function (j) {
@@ -55,7 +146,7 @@
       kb.innerHTML = cols.map(function (st) {
         var list = vis.filter(function (j) { return j.status === st; });
         if (!list.length && kFiltro.busca && !kFiltro.status) return '';
-        return '<div class="kcol">' +
+        return '<div class="kcol" data-st="' + A.esc(st) + '">' +
           '<div class="kcol-h">' + A.icon(window.IAC_ICONS.forStatus(st), 16) + ' ' + A.esc(st) +
           '<span class="count">' + list.length + '</span></div>' +
           (list.length ? list.map(cardHtml).join('') :
@@ -65,25 +156,56 @@
 
       kb.querySelectorAll('.kcard').forEach(function (el) {
         el.addEventListener('click', function (ev) {
+          if (clickSupresso) return;
           if (ev.target.closest('.mv')) return;
           location.hash = '#/jobs/' + el.getAttribute('data-id');
         });
+        // ---- drag & drop desktop (HTML5) ----
+        el.setAttribute('draggable', 'true');
+        el.addEventListener('dragstart', function (ev) {
+          dragId = el.getAttribute('data-id');
+          el.classList.add('dragging');
+          ev.dataTransfer.effectAllowed = 'move';
+          try { ev.dataTransfer.setData('text/plain', dragId); } catch (e) { }
+        });
+        el.addEventListener('dragend', function () {
+          el.classList.remove('dragging');
+          limparHints();
+          dragId = null;
+        });
+        // ---- drag & drop mobile (long-press) ----
+        ligarTouchDrag(el);
       });
+
+      kb.querySelectorAll('.kcol').forEach(function (col) {
+        col.addEventListener('dragover', function (ev) {
+          if (!dragId) return;
+          ev.preventDefault();
+          ev.dataTransfer.dropEffect = 'move';
+          col.classList.add('drop-hint');
+          kanbanAutoscroll(kb, ev.clientX, ev.clientY);
+        });
+        col.addEventListener('dragleave', function (ev) {
+          if (!col.contains(ev.relatedTarget)) col.classList.remove('drop-hint');
+        });
+        col.addEventListener('drop', function (ev) {
+          ev.preventDefault();
+          col.classList.remove('drop-hint');
+          var id = dragId || (ev.dataTransfer ? ev.dataTransfer.getData('text/plain') : '');
+          dragId = null;
+          mover(byId(id), col.getAttribute('data-st'));
+        });
+      });
+
       kb.querySelectorAll('.mv').forEach(function (btn) {
         btn.addEventListener('click', function (ev) {
           ev.stopPropagation();
           var id = btn.closest('.kcard').getAttribute('data-id');
-          var job = jobs.filter(function (j) { return j.id === id; })[0];
+          var job = byId(id);
           A.sheetOptions('Mover "' + (job.cliente || id) + '" pra:', statuses.map(function (s) {
             return { value: s, label: s, icon: window.IAC_ICONS.forStatus(s), badge: s === job.status ? 'atual' : '' };
           }), function (novo) {
-            if (novo === job.status) return;
-            A.sb.from('jobs').update({ status: novo }).eq('id', id).then(function (r) {
-              if (r.error) return A.toastErr(r.error);
-              job.status = novo;
-              A.toast('Movido pra ' + novo, 'ok');
-              aplicar();
-            });
+            mover(job, novo);
           });
         });
       });
@@ -114,12 +236,15 @@
     return Promise.all([
       A.sb.from('jobs').select('*').eq('id', id).maybeSingle(),
       A.sb.from('job_extras').select('*').eq('job_id', id).order('created_at'),
-      A.sb.from('work_orders').select('id,sub_id,data,servico,status,valor_repasse,pago_ao_sub').eq('job_id', id).order('data')
+      A.sb.from('work_orders').select('id,sub_id,data,servico,status,valor_repasse,pago_ao_sub').eq('job_id', id).order('data'),
+      A.sb.from('job_notes').select('*').eq('job_id', id)
+        .order('data', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: true })
     ]).then(function (rs) {
       rs.forEach(function (r) { if (r.error) throw r.error; });
       var job = rs[0].data;
       if (!job) { root.innerHTML = A.empty('Job nao encontrado', id); return; }
-      desenharDetalhe(root, job, rs[1].data || [], rs[2].data || []);
+      desenharDetalhe(root, job, rs[1].data || [], rs[2].data || [], rs[3].data || []);
     });
   }
 
@@ -129,7 +254,7 @@
     });
   }
 
-  function desenharDetalhe(root, job, extras, wos) {
+  function desenharDetalhe(root, job, extras, wos, notes) {
     var margem = (job.valor_total !== null && wos.some(function (w) { return w.valor_repasse; }))
       ? Number(job.valor_total) - wos.reduce(function (s, w) { return s + Number(w.valor_repasse || 0); }, 0)
       : null;
@@ -163,11 +288,28 @@
         : '') +
       '</div>' +
 
-      // ---- notas ----
-      '<div class="card"><h3>' + A.icon('workorders', 18) + ' Notas</h3>' +
-      '<label>Notas gerais</label><textarea id="j-notas" placeholder="Notas do job…">' + A.esc(job.notas || '') + '</textarea>' +
-      '<label style="margin-top:10px">Notas admin (so voce ve)</label><textarea id="j-notas-admin" placeholder="Anotacoes internas…">' + A.esc(job.notas_admin || '') + '</textarea>' +
-      '<label style="margin-top:10px">Recado pro cliente (EN — aparece no portal do cliente)</label><textarea id="j-notas-cliente" placeholder="Message shown to the client…">' + A.esc(job.notas_cliente || '') + '</textarea>' +
+      // ---- notas (timeline de blocos — tabela job_notes) ----
+      '<div class="card"><h3>' + A.icon('workorders', 18) + ' Notas <span class="grow"></span>' +
+      '<span class="badge" id="j-notes-count">' + notes.length + '</span></h3>' +
+      '<div class="note-add">' +
+      '<div class="row" style="margin-bottom:6px">' +
+      '<input id="nn-titulo" class="grow" placeholder="Titulo (opcional)" />' +
+      '<input id="nn-data" type="date" value="' + A.hoje() + '" style="max-width:155px" />' +
+      '</div>' +
+      '<textarea id="nn-texto" style="min-height:56px" placeholder="Adicionar nota… (o que rolou hoje no job)"></textarea>' +
+      '<button class="btn sm" id="nn-add" style="margin-top:6px">+ Adicionar nota</button>' +
+      '</div>' +
+      '<div id="j-notes-tl" style="margin-top:10px"></div>' +
+      '<details style="margin-top:10px"><summary class="muted" style="cursor:pointer">Notas antigas (backup, so leitura)</summary>' +
+      '<div class="muted" style="white-space:pre-wrap;font-size:12.5px;margin-top:6px">' +
+      A.esc(job.notas || '—') +
+      (job.notas_admin ? '\n\n[admin] ' + A.esc(job.notas_admin) : '') + '</div></details>' +
+      '</div>' +
+
+      // ---- recado pro cliente ----
+      '<div class="card"><h3>' + A.icon('open', 18) + ' Recado pro cliente</h3>' +
+      '<label>EN — aparece no portal do cliente</label>' +
+      '<textarea id="j-notas-cliente" placeholder="Message shown to the client…">' + A.esc(job.notas_cliente || '') + '</textarea>' +
       '<div class="muted" id="j-notas-st" style="margin-top:4px">Salva sozinho enquanto digita.</div>' +
       '</div>' +
 
@@ -244,20 +386,111 @@
       return spec;
     });
 
-    // ---------- notas autosave ----------
-    [['j-notas', 'notas'], ['j-notas-admin', 'notas_admin'], ['j-notas-cliente', 'notas_cliente']].forEach(function (par) {
-      var ta = document.getElementById(par[0]);
+    // ---------- notas em blocos (timeline) ----------
+    function ordenarNotas() {
+      notes.sort(function (a, b) {
+        var da = a.data || '', db = b.data || '';
+        if (da !== db) return da < db ? 1 : -1; // data desc
+        var ca = a.created_at || '', cb = b.created_at || '';
+        return ca < cb ? -1 : ca > cb ? 1 : 0;  // dentro do dia: ordem de criacao
+      });
+    }
+    function pintarNotas() {
+      var box = document.getElementById('j-notes-tl');
+      document.getElementById('j-notes-count').textContent = notes.length;
+      if (!notes.length) {
+        box.innerHTML = '<div class="muted">Nenhuma nota ainda. Adiciona a primeira acima.</div>';
+        return;
+      }
+      box.innerHTML = notes.map(function (n, i) {
+        return '<div class="note" data-ni="' + i + '">' +
+          '<div class="note-h">' +
+          '<span class="note-dt">' + A.esc(A.fmtData(n.data)) + '</span>' +
+          (n.titulo ? '<b class="note-tt">' + A.esc(n.titulo) + '</b>' : '') +
+          '<span class="grow"></span>' +
+          '<button class="icon-btn nsm" data-n-edit="' + i + '" title="editar">✎</button>' +
+          '<button class="icon-btn red nsm" data-n-del="' + i + '" title="excluir">✕</button>' +
+          '</div>' +
+          '<div class="note-tx">' + A.esc(n.texto || '') + '</div>' +
+          '</div>';
+      }).join('');
+      box.querySelectorAll('[data-n-edit]').forEach(function (btn) {
+        btn.addEventListener('click', function () { editarNota(Number(btn.getAttribute('data-n-edit'))); });
+      });
+      box.querySelectorAll('[data-n-del]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var i = Number(btn.getAttribute('data-n-del'));
+          var n = notes[i];
+          if (!A.confirmar('Excluir essa nota de ' + A.fmtData(n.data) + '?')) return;
+          A.sb.from('job_notes').delete().eq('id', n.id).then(function (r) {
+            if (r.error) return A.toastErr(r.error);
+            notes.splice(i, 1); A.toast('Nota excluida', 'ok'); pintarNotas();
+          });
+        });
+      });
+    }
+    function editarNota(i) {
+      var n = notes[i];
+      var div = document.querySelector('#j-notes-tl [data-ni="' + i + '"]');
+      if (!div) return;
+      div.innerHTML =
+        '<div class="row" style="margin-bottom:6px">' +
+        '<input class="grow" data-e-tt value="' + A.esc(n.titulo || '') + '" placeholder="Titulo (opcional)" />' +
+        '<input data-e-dt type="date" value="' + A.esc(n.data || '') + '" style="max-width:155px" />' +
+        '</div>' +
+        '<textarea data-e-tx style="min-height:90px">' + A.esc(n.texto || '') + '</textarea>' +
+        '<div class="row" style="margin-top:6px">' +
+        '<button class="btn sm" data-e-save>Salvar</button>' +
+        '<button class="btn sec sm" data-e-cancel>Cancelar</button>' +
+        '</div>';
+      div.querySelector('[data-e-cancel]').addEventListener('click', function () { pintarNotas(); });
+      div.querySelector('[data-e-save]').addEventListener('click', function () {
+        var patch = {
+          titulo: div.querySelector('[data-e-tt]').value.trim() || null,
+          data: div.querySelector('[data-e-dt]').value || null,
+          texto: div.querySelector('[data-e-tx]').value.trim() || null
+        };
+        A.sb.from('job_notes').update(patch).eq('id', n.id).then(function (r) {
+          if (r.error) return A.toastErr(r.error);
+          n.titulo = patch.titulo; n.data = patch.data; n.texto = patch.texto;
+          ordenarNotas(); pintarNotas(); A.toast('Nota salva', 'ok');
+        });
+      });
+    }
+    pintarNotas();
+    document.getElementById('nn-add').addEventListener('click', function () {
+      var texto = document.getElementById('nn-texto').value.trim();
+      if (!texto) return A.toast('Escreve a nota primeiro', 'err');
+      var row = {
+        job_id: job.id,
+        data: document.getElementById('nn-data').value || A.hoje(),
+        titulo: document.getElementById('nn-titulo').value.trim() || null,
+        texto: texto
+      };
+      A.sb.from('job_notes').insert(row).select().single().then(function (r) {
+        if (r.error) return A.toastErr(r.error);
+        notes.push(r.data);
+        ordenarNotas();
+        document.getElementById('nn-texto').value = '';
+        document.getElementById('nn-titulo').value = '';
+        A.toast('Nota adicionada', 'ok');
+        pintarNotas();
+      });
+    });
+
+    // ---------- recado pro cliente (autosave) ----------
+    (function () {
+      var ta = document.getElementById('j-notas-cliente');
       var st = document.getElementById('j-notas-st');
       ta.addEventListener('input', A.debounce(function () {
         st.textContent = 'Salvando…';
-        var patch = {}; patch[par[1]] = ta.value || null;
-        salvarJob(job.id, patch).then(function () {
-          job[par[1]] = ta.value || null;
+        salvarJob(job.id, { notas_cliente: ta.value || null }).then(function () {
+          job.notas_cliente = ta.value || null;
           st.textContent = 'Salvo ✓';
           A.toast('Salvo', 'ok');
         }).catch(function (e) { st.textContent = 'Erro ao salvar'; A.toastErr(e); });
       }, 900));
-    });
+    })();
 
     // ---------- extras ----------
     function pintarExtras() {
