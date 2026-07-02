@@ -271,7 +271,8 @@
     return '<a class="card wo-card" href="#/wo/' + A.esc(w.id) + '">' +
       '<div class="top"><b style="color:var(--warm)">' + A.esc(w.cliente || '—') + '</b>' +
       '<span class="muted">' + A.esc(A.fmtDataDia(w.data)) + (w.hora ? ' · ' + A.esc(w.hora) : '') + '</span></div>' +
-      '<div class="muted" style="margin:2px 0 8px">' + A.esc(A.subNome(w.sub_id)) + ' · ' + A.esc(w.servico || '') + '</div>' +
+      '<div class="muted" style="margin:2px 0 8px">' + A.esc(A.subNome(w.sub_id)) + ' · ' + A.esc(w.servico || '') +
+      (w.pendencia ? ' <span class="badge yellow">⚠ pendência</span>' : '') + '</div>' +
       (p.total ? '<div class="row" style="gap:8px;margin-bottom:8px"><div class="pbar grow"><i style="width:' + pct + '%"></i></div>' +
         '<span class="muted" style="font-size:12px">' + p.done + '/' + p.total + '</span></div>' : '') +
       '<div class="row"><span class="vl" style="font-weight:800;color:var(--warm)">Repasse: ' + A.money(w.valor_repasse) + '</span>' +
@@ -296,7 +297,14 @@
       rs.forEach(function (r) { if (r.error) throw r.error; });
       var wo = rs[0].data;
       if (!wo) { root.innerHTML = A.empty('Work order nao encontrada', id); return; }
-      desenharDetalhe(root, wo, rs[1].data || [], rs[2].data || [], rs[3].data || []);
+      // job do cliente (admin-only): valor total / pago / saldo — NUNCA vai pro sub
+      var pJob = wo.job_id
+        ? A.sb.from('jobs').select('id,cliente,valor_total,pago,pagamento,status').eq('id', wo.job_id).maybeSingle()
+        : Promise.resolve({ data: null, error: null });
+      return Promise.resolve(pJob).then(function (rj) {
+        if (rj.error) throw rj.error;
+        desenharDetalhe(root, wo, rs[1].data || [], rs[2].data || [], rs[3].data || [], rj.data || null);
+      });
     });
   }
 
@@ -304,12 +312,35 @@
     return A.sb.from('work_orders').update(patch).eq('id', id).then(function (r) { if (r.error) throw r.error; });
   }
 
-  function desenharDetalhe(root, wo, checklist, materiais, pagamentos) {
+  function desenharDetalhe(root, wo, checklist, materiais, pagamentos, job) {
     var guyLink = A.PAGES + 'guy.html?t=' + wo.token;
+
+    // bloco Cliente (ADMIN-ONLY): dados financeiros do JOB — jamais no portal do sub
+    var clienteHtml = '';
+    if (job) {
+      var vt = job.valor_total;
+      var pg = Number(job.pago || 0);
+      var saldo = (vt === null || vt === undefined) ? null : Number(vt) - pg;
+      clienteHtml =
+        '<div class="card"><h3>💰 Cliente (só você vê) <span class="grow"></span>' +
+        '<span class="muted" style="font-weight:400">🔒 não aparece pro sub</span></h3>' +
+        '<div class="row" style="margin-bottom:8px;flex-wrap:wrap">' +
+        '<span class="stat" style="box-shadow:none;background:var(--light);padding:8px 12px"><span class="lbl">Valor total</span><div class="val" style="font-size:16px">' + A.money(vt) + '</div></span>' +
+        '<span class="stat" style="box-shadow:none;background:var(--light);padding:8px 12px"><span class="lbl">Pago (depósito)</span><div class="val green" style="font-size:16px">' + A.money(pg) + '</div></span>' +
+        (saldo !== null
+          ? '<span class="stat" style="box-shadow:none;background:var(--light);padding:8px 12px"><span class="lbl">Saldo</span><div class="val ' + (saldo > 0 ? 'red' : 'green') + '" style="font-size:16px">' + A.money(saldo) + '</div></span>'
+          : '') +
+        '</div>' +
+        '<div class="row">' + A.badgePagamento(job.pagamento) +
+        '<span class="grow"></span><a class="btn sec sm" href="#/jobs/' + A.esc(job.id) + '">Ver job</a></div>' +
+        '<div class="muted" style="margin-top:8px">🔒 Bloco só do admin — o portal do guy mostra apenas o repasse DELE.</div>' +
+        '</div>';
+    }
 
     root.innerHTML =
       '<div class="h-page"><button class="back-btn" onclick="location.hash=\'#/wo\'">' + A.icon('back', 20) + '</button>' +
       A.esc(wo.cliente || wo.id) + '<span class="grow"></span>' +
+      (wo.pendencia ? '<span class="badge yellow">⚠ pendência</span> ' : '') +
       '<span class="badge warm">' + A.esc(wo.status || '') + '</span></div>' +
 
       '<div class="card"><h3>' + A.icon('workorders', 18) + ' Dados da WO <span class="grow"></span><span class="muted" style="font-weight:400">toca pra editar</span></h3>' +
@@ -338,6 +369,19 @@
       '</div>' +
       (waUrl(wo) ? '' : '<div class="muted" style="margin-top:6px">Cadastra o telefone do sub (tabela subs) pra habilitar o envio direto no WhatsApp.</div>') +
       '</div>' +
+
+      // ---- pendência / trabalho parcial ----
+      '<div class="card"><h3>⚠️ Pendência / trabalho parcial</h3>' +
+      '<div class="muted" style="margin-bottom:8px">Se preencher, o portal do sub mostra um aviso destacado e o botão vira "Concluir etapa de hoje" (em vez de fechar o job).</div>' +
+      '<div><label>Pendência (vazio = sem pendência)</label>' +
+      '<textarea id="w-pend" style="min-height:70px" placeholder="ex: Faltaram as escadas — 12 degraus + risers">' + A.esc(wo.pendencia || '') + '</textarea></div>' +
+      '<div class="row" style="margin-top:8px;align-items:flex-end">' +
+      '<div style="width:180px"><label>Data de retorno</label><input type="date" id="w-pend-data" value="' + A.esc(wo.data_retorno || '') + '" /></div>' +
+      '<button class="btn sm" id="w-pend-save">Salvar pendência</button>' +
+      '<button class="btn sec sm" id="w-pend-clear">Limpar</button>' +
+      '</div></div>' +
+
+      clienteHtml +
 
       '<div class="card"><h3>' + A.icon('check', 18) + ' Checklist <span class="grow"></span><span class="muted" id="w-prog" style="font-weight:400"></span></h3>' +
       '<div id="w-chk"></div>' +
@@ -526,6 +570,24 @@
         document.getElementById('wp-obs').value = '';
         sincronizarPago();
       });
+    });
+
+    // ---------- pendência (PATCH work_orders: pendencia + data_retorno) ----------
+    document.getElementById('w-pend-save').addEventListener('click', function () {
+      var txt = document.getElementById('w-pend').value.trim() || null;
+      var dt = document.getElementById('w-pend-data').value || null;
+      salvarWo(wo.id, { pendencia: txt, data_retorno: txt ? dt : null }).then(function () {
+        wo.pendencia = txt; wo.data_retorno = txt ? dt : null;
+        A.toast(txt ? 'Pendência salva — o sub vai ver o aviso no portal' : 'Pendência removida', 'ok');
+      }).catch(A.toastErr);
+    });
+    document.getElementById('w-pend-clear').addEventListener('click', function () {
+      document.getElementById('w-pend').value = '';
+      document.getElementById('w-pend-data').value = '';
+      salvarWo(wo.id, { pendencia: null, data_retorno: null }).then(function () {
+        wo.pendencia = null; wo.data_retorno = null;
+        A.toast('Pendência removida', 'ok');
+      }).catch(A.toastErr);
     });
 
     // ---------- copiar ----------

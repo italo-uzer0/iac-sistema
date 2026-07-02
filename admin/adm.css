@@ -125,6 +125,7 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
 .badge.green { background: #e2f2e8; color: var(--green); }
 .badge.red { background: #fdeae6; color: var(--red); }
 .badge.orange { background: #fbe8d8; color: var(--orange); }
+.badge.yellow { background: #fdf3cf; color: #8a6d1a; box-shadow: 0 0 0 1px #e6c85a inset; }
 .badge.warm { background: var(--warm); color: var(--light); }
 
 /* ---------- resumo cards ---------- */
