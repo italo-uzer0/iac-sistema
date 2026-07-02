@@ -9,6 +9,20 @@
 
   var EXTRA_STATUS = ['proposto', 'aprovado', 'recusado', 'concluido'];
 
+  var ORIGENS = [
+    { value: 'lsa', label: 'LSA (Google Local Services)' },
+    { value: 'google_search', label: 'Google Search' },
+    { value: 'site_form', label: 'Formulario do site' },
+    { value: 'indicacao', label: 'Indicacao' },
+    { value: 'repeat', label: 'Cliente repetido' },
+    { value: 'other', label: 'Outro' }
+  ];
+  function origemLabel(v) {
+    if (!v) return null;
+    var o = ORIGENS.filter(function (x) { return x.value === v; })[0];
+    return o ? o.label : v;
+  }
+
   A.pages.jobs = {
     render: function (root, args) {
       if (args && args[0]) return renderDetalhe(root, args[0]);
@@ -221,8 +235,10 @@
   }
 
   function cardHtml(j) {
+    var ctNome = j.contractor ? ((A.cache.ctById[j.contractor] || {}).nome || j.contractor) : null;
     return '<div class="kcard" data-id="' + A.esc(j.id) + '">' +
       '<div class="nm">' + A.esc(j.cliente || '(sem nome)') + '</div>' +
+      (ctNome ? '<div style="margin:2px 0"><span class="badge warm" title="job de contractor — quem paga e o contractor">💼 ' + A.esc(ctNome) + '</span></div>' : '') +
       '<div class="sv">' + A.icon(window.IAC_ICONS.forService(j.tipo_servico), 15) + ' ' +
       A.esc(j.tipo_servico || 'servico?') + (j.cidade_st ? ' · ' + A.esc(j.cidade_st) : '') + '</div>' +
       '<div class="ft"><span class="vl">' + A.money(j.valor_total) + '</span>' +
@@ -282,6 +298,10 @@
       A.fld('Repasse (status)', 'repasse_status', job.repasse_status) +
       A.fld('Sub', 'sub', A.subNome(job.sub)) +
       A.fld('Contractor', 'contractor', job.contractor ? ((A.cache.ctById[job.contractor] || {}).nome || job.contractor) : null) +
+      A.fld('Origem do lead', 'origem', origemLabel(job.origem)) +
+      '<div id="j-ind-wrap"' + (job.origem === 'indicacao' ? '' : ' style="display:none"') + '>' +
+      A.fld('Indicado por', 'indicado_por', job.indicado_por) +
+      '</div>' +
       '</div>' +
       (margem !== null
         ? '<hr class="sep"/><div class="row"><span class="muted">Margem estimada (total − repasses das WOs):</span> <b style="color:' + (margem >= 0 ? 'var(--green)' : 'var(--red)') + '">' + A.money(margem) + '</b></div>'
@@ -369,7 +389,9 @@
         tipo_pgto: { value: job.tipo_pgto },
         repasse_status: { value: job.repasse_status, type: 'select', options: A.REPASSE_STATUS },
         sub: { value: job.sub, type: 'select', options: subOpts, allowEmpty: true },
-        contractor: { value: job.contractor, type: 'select', options: ctOpts, allowEmpty: true }
+        contractor: { value: job.contractor, type: 'select', options: ctOpts, allowEmpty: true },
+        origem: { value: job.origem, type: 'select', options: ORIGENS, allowEmpty: true },
+        indicado_por: { value: job.indicado_por }
       };
       var spec = specs[field];
       if (!spec) return null;
@@ -381,6 +403,11 @@
           if (field === 'valor_total' || field === 'pago') return A.esc(A.money(v));
           if (field === 'sub') return A.esc(A.subNome(v));
           if (field === 'contractor') return A.esc(v ? ((A.cache.ctById[v] || {}).nome || v) : '—');
+          if (field === 'origem') {
+            var w = document.getElementById('j-ind-wrap');
+            if (w) w.style.display = (v === 'indicacao') ? '' : 'none';
+            return v ? A.esc(origemLabel(v)) : undefined;
+          }
         });
       };
       return spec;
