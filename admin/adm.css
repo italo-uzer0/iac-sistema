@@ -435,3 +435,56 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
 .dia-guia-list li { font-size: 13px; color: var(--ink); margin-bottom: 5px; line-height: 1.4; }
 
 .dia-est:active { background: var(--light); }
+
+/* ---- linha de acoes de status (2a fileira de botoes no card) ---- */
+.dia-statusrow { margin-top: 8px; }
+
+/* ---- SECAO 0: adicionar tarefa + checklist do dia ---- */
+.dia-addtask { display: flex; gap: 8px; margin-bottom: 10px; }
+.dia-addtask input {
+  flex: 1; min-width: 0; min-height: 44px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 11px; font-size: 14px;
+}
+.dia-addtask .btn { min-height: 44px; }
+
+.dia-chk {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  padding: 11px 12px; margin-bottom: 8px; box-shadow: var(--shadow);
+}
+.dia-chk.auto { border-left: 4px solid var(--orange); }
+.dia-chk.manual { border-left: 4px solid var(--green); }
+.dia-chk.done { opacity: .62; }
+.dia-chk.done .dia-chk-tx { text-decoration: line-through; color: var(--muted); }
+.dia-chk-box {
+  flex: none; width: 30px; height: 30px; min-width: 30px; border-radius: 8px;
+  border: 2px solid var(--green); display: flex; align-items: center; justify-content: center;
+  font-weight: 800; color: var(--green); cursor: pointer; font-size: 16px; background: #fff;
+}
+.dia-chk-box.on { background: var(--green); color: #fff; }
+.dia-chk-box.auto {
+  border: none; background: transparent; cursor: default; font-size: 20px; color: inherit;
+}
+.dia-chk-main { flex: 1; min-width: 0; }
+.dia-chk-tx { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; }
+.dia-chk-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.dia-chk-acts .btn { min-height: 40px; }
+.dia-chk .icon-btn { flex: none; }
+
+/* ---- SECAO 3/4: linhas financeiras com acoes grandes ---- */
+.dia-fin {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  padding: 11px 13px; margin-bottom: 8px; box-shadow: var(--shadow);
+}
+.dia-fin-main { flex: 1; min-width: 0; }
+.dia-fin-main .t1 { font-weight: 700; font-size: 14.5px; color: var(--warm); }
+.dia-fin-main .t2 { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.dia-fin-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.dia-fin-acts .btn { min-height: 44px; padding: 8px 12px; }
+.dia-fin-vl { white-space: nowrap; font-size: 15px; font-weight: 800; align-self: center; }
+.dia-fin-vl.red { color: var(--red); }
+.dia-fin-vl.green { color: var(--green); }
+
+.dia-card-sm { padding: 12px; }
+.dia-conferi { margin-top: 8px; }

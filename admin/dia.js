@@ -1,38 +1,54 @@
 /* ============================================================================
-   IAC ADMIN v2 — dia.js  ("Meu Dia")
-   Roteiro pessoal do Italo (dono) — a HOME do app. Diferente das work orders
-   dos subs: aqui e a lista do que ELE tem que fazer hoje.
-   Secoes recolhiveis com contador, na ordem:
-     1) Orcamentos a fazer (Lead / Visita agendada / Visita Feita) + guia de visita
-     2) Hoje na rua (WOs A enviar / Em andamento — hoje ou futuro)
-     3) A pagar agora (repasses pendentes/parciais) + alerta W9
-     4) A receber (entradas pendentes/parciais)
-     5) Follow-up (Estimate Enviado, mais antigos primeiro)
-   So-leitura de dados operacionais + atalhos (ligar, mapa, WhatsApp, abrir job).
+   IAC ADMIN v2 — dia.js  ("Meu Dia" ☀️)
+   ESQUEMINHA PESSOAL do Italo (dono) — a HOME do app. Tudo editavel/acionavel
+   no toque, salvando no Supabase na hora (A.sb autenticado = acesso total).
+   Ordem:
+     0) ✅ Checklist do dia  (auto: enviar proposal + follow-up | manuais: dia_tarefas)
+     1) 🔍 Orcamentos a fazer (visitas) + guia por servico + acoes de status
+     2) 📋 Subs na rua (WOs) + WhatsApp + marcar enviado/concluido
+     3) 💰 A pagar (repasses) — Paguei / editar valor / remover  ← queixa do Italo
+     4) 💵 A receber (entradas) — Recebi / editar valor
+     5) 🔔 Follow-up (Estimate Enviado) — Fechou / Perdido / liguei hoje
+   Toda acao: UPDATE/INSERT/DELETE via A.sb, try/catch(.then/.catch)+toast, e
+   re-render (update otimista quando cabe). Confirmar antes de DELETE.
    ============================================================================ */
 (function () {
   'use strict';
   var A = window.ADM;
 
-  /* ------------------------------------------------ status dos orcamentos -- */
-  // match case-insensitive pros dados reais ("Visita Feita" vs "Visita feita")
+  /* ================================================ status canonicos ======= */
+  // Os dados reais usam "Visita Feita" (F maiusculo). Comparo case-insensitive
+  // pra LER e gravo o valor canonico que o pipeline espera.
+  var ST = {
+    LEAD: 'Lead',
+    VISITA_AGENDADA: 'Visita agendada',
+    VISITA_FEITA: 'Visita Feita',
+    ESTIMATE: 'Estimate Enviado',
+    SCHEDULE: 'Schedule',
+    PERDIDO: 'Perdidos'
+  };
+  function eqStatus(a, b) {
+    return String(a || '').toLowerCase().trim() === String(b || '').toLowerCase().trim();
+  }
+  // orcamentos = Lead / Visita agendada / Visita Feita
   var ORC_STATUSES = ['lead', 'visita agendada', 'visita feita'];
   function ehOrcamento(job) {
-    return ORC_STATUSES.indexOf(String(job.status || '').toLowerCase()) >= 0;
+    return ORC_STATUSES.indexOf(String(job.status || '').toLowerCase().trim()) >= 0;
   }
+  function ehEstimate(job) { return eqStatus(job.status, ST.ESTIMATE); }
 
-  /* ------------------------------------------------ links / helpers -------- */
+  /* ================================================ helpers de link ======== */
   function telDigitos(tel) {
     var dig = String(tel || '').replace(/\D/g, '');
     if (!dig) return null;
     if (dig.length === 10) dig = '1' + dig;
     return dig;
   }
-  function btnLigar(tel, extraCls) {
+  function btnLigar(tel, label) {
     var dig = telDigitos(tel);
     if (!dig) return '';
-    return '<a class="btn green sm dia-act" href="tel:' + A.esc(dig) + '"' +
-      (extraCls ? ' style="' + extraCls + '"' : '') + '>' + A.icon('phone', 15) + ' Ligar</a>';
+    return '<a class="btn green sm dia-act" href="tel:' + A.esc(dig) + '">' +
+      A.icon('phone', 15) + ' ' + (label || 'Ligar') + '</a>';
   }
   function btnMapa(endereco, cidade) {
     var full = [endereco, cidade].filter(Boolean).join(', ');
@@ -68,28 +84,31 @@
     return 'https://wa.me/' + dig + '?text=' + encodeURIComponent(montarEsqueminha(wo));
   }
 
-  // datas: hoje / atrasada
+  /* ================================================ datas ================== */
   function ehHojeOuPassado(iso) {
-    var d = A.parseISO(iso);
-    if (!d) return false;
+    var d = A.parseISO(iso); if (!d) return false;
     var h = new Date(); h.setHours(0, 0, 0, 0);
     return d <= h;
   }
   function ehHojeOuFuturo(iso) {
-    var d = A.parseISO(iso);
-    if (!d) return false;
+    var d = A.parseISO(iso); if (!d) return false;
     var h = new Date(); h.setHours(0, 0, 0, 0);
     return d >= h;
   }
   function ehHoje(iso) {
-    var d = A.parseISO(iso);
-    if (!d) return false;
+    var d = A.parseISO(iso); if (!d) return false;
     var h = new Date(); h.setHours(0, 0, 0, 0);
     return d.getTime() === h.getTime();
   }
+  // dias desde uma data ISO (created_at) ate hoje
+  function diasDesde(iso) {
+    var d = A.parseISO(iso); if (!d) return null;
+    var h = new Date(); h.setHours(0, 0, 0, 0);
+    return Math.round((h - d) / 86400000);
+  }
 
-  /* ------------------------------------------------ GUIA DE VISITA --------- */
-  // mapeia palavras-chave de tipo_servico -> checklist guia (so leitura)
+  /* ================================================ GUIA DE VISITA ========= */
+  // checklist guia por tipo de servico (so leitura, na visita)
   function guiaVisita(tipo) {
     var t = String(tipo || '').toLowerCase();
     if (/sand|refinish|s&r|lixa/.test(t)) {
@@ -143,7 +162,7 @@
         'How did you hear about us?'
       ];
     }
-    if (/framing|carpentry|masonry|mason|trim|drywall|framing/.test(t)) {
+    if (/framing|carpentry|masonry|mason|trim|drywall/.test(t)) {
       return [
         'Medir/contar (LFT trim, SF drywall, n aberturas)',
         'Ler as plantas se houver',
@@ -165,133 +184,176 @@
     ];
   }
 
-  /* ------------------------------------------------ estado das secoes ------ */
-  var aberto = { orc: true, rua: true, pagar: true, receber: true, followup: true };
+  /* ================================================ estado das secoes ====== */
+  var aberto = { chk: true, orc: true, rua: true, pagar: true, receber: true, followup: true };
   var verTodosEstimates = false;
+  var conferido = false; // "conferi tudo" na secao A pagar — so visual
+
+  // guardo os dados carregados pra re-render sem refetch pesado
+  var DADOS = { jobs: [], wos: [], caixa: [], tarefas: [] };
 
   A.pages.dia = {
     render: function (root) {
       return Promise.all([
         A.sb.from('jobs').select('id,cliente,telefone,endereco,cidade_st,tipo_servico,status,data_visita,created_at').order('created_at', { ascending: false }),
         A.sb.from('work_orders').select('id,job_id,sub_id,cliente,data,hora,status,endereco,cidade_st,servico,valor_repasse,pendencia,token,obs').order('data', { ascending: true, nullsFirst: false }),
-        A.sb.from('caixa').select('id,data,tipo,cliente,job_id,descricao,valor,status,pago_para').order('valor', { ascending: false })
+        A.sb.from('caixa').select('id,data,tipo,cliente,job_id,descricao,valor,status,pago_para').order('valor', { ascending: false }),
+        A.sb.from('dia_tarefas').select('*').order('ordem', { ascending: true }).order('created_at', { ascending: true })
       ]).then(function (rs) {
         rs.forEach(function (r) { if (r.error) throw r.error; });
-        desenhar(root, rs[0].data || [], rs[1].data || [], rs[2].data || []);
+        DADOS.jobs = rs[0].data || [];
+        DADOS.wos = rs[1].data || [];
+        DADOS.caixa = rs[2].data || [];
+        DADOS.tarefas = rs[3].data || [];
+        desenhar(root);
       });
     }
   };
 
-  function desenhar(root, jobs, wos, caixa) {
-    /* ----------------------- 1) ORCAMENTOS A FAZER ----------------------- */
+  // re-render leve (usa DADOS ja em memoria, sem refetch)
+  function rerender() {
+    var root = document.getElementById('page');
+    if (root) desenhar(root);
+  }
+
+  /* ================================================ DESENHO ================ */
+  function desenhar(root) {
+    var jobs = DADOS.jobs, wos = DADOS.wos, caixa = DADOS.caixa, tarefas = DADOS.tarefas;
+    var hojeISO = A.hoje();
+
+    /* --- 1) ORCAMENTOS A FAZER --- */
     var orcamentos = jobs.filter(ehOrcamento).sort(function (a, b) {
       var da = a.data_visita, db = b.data_visita;
       if (!da && !db) return 0;
-      if (!da) return 1;            // sem data por ultimo
+      if (!da) return 1;
       if (!db) return -1;
-      return da < db ? -1 : da > db ? 1 : 0;  // data_visita asc
+      return da < db ? -1 : da > db ? 1 : 0;
     });
 
-    /* ----------------------- 2) HOJE NA RUA (subs) ----------------------- */
+    /* --- 2) SUBS NA RUA --- */
     var naRua = wos.filter(function (w) {
       var st = String(w.status || '');
       if (st !== 'A enviar' && st !== 'Em andamento') return false;
       return ehHojeOuFuturo(w.data);
     });
 
-    /* ----------------------- 3) A PAGAR (repasses) ----------------------- */
+    /* --- 3) A PAGAR (repasses) --- */
     var aPagar = caixa.filter(function (c) {
       return c.tipo === 'repasse' && (c.status === 'pendente' || c.status === 'parcial');
     }).sort(function (a, b) { return Number(b.valor || 0) - Number(a.valor || 0); });
     var totalPagar = aPagar.reduce(function (s, c) { return s + Number(c.valor || 0); }, 0);
 
-    /* ----------------------- 4) A RECEBER -------------------------------- */
+    /* --- 4) A RECEBER --- */
     var aReceber = caixa.filter(function (c) {
       return c.tipo === 'entrada' && (c.status === 'pendente' || c.status === 'parcial');
     }).sort(function (a, b) { return Number(b.valor || 0) - Number(a.valor || 0); });
     var totalReceber = aReceber.reduce(function (s, c) { return s + Number(c.valor || 0); }, 0);
 
-    /* ----------------------- 5) FOLLOW-UP -------------------------------- */
-    var estimates = jobs.filter(function (j) {
-      return String(j.status || '') === 'Estimate Enviado';
-    }).sort(function (a, b) {
+    /* --- 5) FOLLOW-UP (estimates) --- */
+    var estimates = jobs.filter(ehEstimate).sort(function (a, b) {
       var ca = a.created_at || '', cb = b.created_at || '';
-      return ca < cb ? -1 : ca > cb ? 1 : 0;   // mais antigos primeiro
+      return ca < cb ? -1 : ca > cb ? 1 : 0; // mais antigos primeiro
     });
 
-    /* ----------------------- topo / saudacao ----------------------------- */
-    var h = new Date();
-    var hora = h.getHours();
+    /* --- 0) CHECKLIST DO DIA --- */
+    // (a) enviar proposal: Visita Feita
+    var autoProposal = jobs.filter(function (j) { return eqStatus(j.status, ST.VISITA_FEITA); });
+    // (b) follow-up: Estimate Enviado ha 3+ dias, mais antigo primeiro, top 8
+    var autoFollow = estimates.filter(function (j) {
+      var d = diasDesde(j.created_at);
+      return d !== null && d >= 3;
+    }).slice(0, 8);
+    // (c) manuais: dia_tarefas (todas done=false + as done=true de hoje)
+    var manuais = tarefas.filter(function (t) {
+      if (!t.done) return true;
+      return t.data === hojeISO; // done=true so aparece se for de hoje
+    });
+    var chkPendentes = autoProposal.length + autoFollow.length +
+      manuais.filter(function (t) { return !t.done; }).length;
+
+    /* --- topo / saudacao --- */
+    var h = new Date(), hora = h.getHours();
     var saud = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
-    var hojeFmt = A.fmtDataDia(A.hoje());
-    var resumo = orcamentos.length + ' visita' + (orcamentos.length === 1 ? '' : 's') +
+    var resumo = chkPendentes + ' na lista de hoje' +
+      ' · ' + orcamentos.length + ' visita' + (orcamentos.length === 1 ? '' : 's') +
       ' · ' + naRua.length + ' sub' + (naRua.length === 1 ? '' : 's') + ' na rua' +
-      ' · ' + A.money(totalPagar) + ' a pagar' +
-      ' · ' + A.money(totalReceber) + ' a receber';
+      ' · ' + A.money(totalPagar) + ' a pagar';
 
     var html =
       '<div class="dia-hero">' +
       '<div class="dia-hi">☀️ ' + A.esc(saud) + ', Italo</div>' +
-      '<div class="dia-date">' + A.esc(hojeFmt) + '</div>' +
+      '<div class="dia-date">' + A.esc(A.fmtDataDia(hojeISO)) + '</div>' +
       '<div class="dia-sum">' + A.esc(resumo) + '</div>' +
       '</div>';
 
+    // === SECAO 0: CHECKLIST DO DIA ===
+    html += secaoHead('chk', '✅ Checklist do dia', chkPendentes, 'o esqueminha de hoje');
+    html += '<div class="dia-sec" data-sec="chk"' + (aberto.chk ? '' : ' style="display:none"') + '>';
+    // input de tarefa manual
+    html += '<div class="dia-addtask">' +
+      '<input id="dt-novo" placeholder="➕ adicionar tarefa pra hoje…" />' +
+      '<button class="btn sm" id="dt-add">Add</button>' +
+      '</div>';
+    if (!chkPendentes && !manuais.length) {
+      html += A.empty('Tudo limpo por hoje', 'Tarefas suas + proposals a enviar + follow-ups caem aqui.', 'done');
+    } else {
+      // auto: enviar proposal
+      autoProposal.forEach(function (j) { html += chkAutoProposal(j); });
+      // auto: follow-up
+      autoFollow.forEach(function (j) { html += chkAutoFollow(j); });
+      // manuais
+      manuais.forEach(function (t) { html += chkManual(t); });
+    }
+    html += '</div>';
+
     // === SECAO 1: ORCAMENTOS A FAZER ===
-    html += secaoHead('orc', '🔍 Orcamentos a fazer', orcamentos.length,
-      'o mais importante — visitas pra fechar');
+    html += secaoHead('orc', '🔍 Orcamentos a fazer', orcamentos.length, 'visitas pra fechar');
     html += '<div class="dia-sec" data-sec="orc"' + (aberto.orc ? '' : ' style="display:none"') + '>';
-    if (!orcamentos.length) {
-      html += A.empty('Nenhum orcamento na fila', 'Leads e visitas agendadas aparecem aqui.', 'visita');
-    } else {
-      html += orcamentos.map(cardOrcamento).join('');
-    }
+    if (!orcamentos.length) html += A.empty('Nenhum orcamento na fila', 'Leads e visitas agendadas aparecem aqui.', 'visita');
+    else html += orcamentos.map(cardOrcamento).join('');
     html += '</div>';
 
-    // === SECAO 2: HOJE NA RUA ===
-    html += secaoHead('rua', '📋 Hoje na rua (subs)', naRua.length,
-      'work orders de hoje pra frente');
+    // === SECAO 2: SUBS NA RUA ===
+    html += secaoHead('rua', '📋 Subs na rua', naRua.length, 'WOs de hoje pra frente');
     html += '<div class="dia-sec" data-sec="rua"' + (aberto.rua ? '' : ' style="display:none"') + '>';
-    if (!naRua.length) {
-      html += A.empty('Ninguem na rua', 'WOs A enviar / Em andamento com data de hoje pra frente.', 'workorders');
-    } else {
-      html += naRua.map(cardRua).join('');
-    }
+    if (!naRua.length) html += A.empty('Ninguem na rua', 'WOs A enviar / Em andamento de hoje pra frente.', 'workorders');
+    else html += naRua.map(cardRua).join('');
     html += '</div>';
 
-    // === SECAO 3: A PAGAR AGORA ===
-    html += secaoHead('pagar', '💰 A pagar agora (repasses)', aPagar.length,
-      'total: ' + A.money(totalPagar));
+    // === SECAO 3: A PAGAR ===
+    html += secaoHead('pagar', '💰 A pagar (repasses)', aPagar.length, 'total: ' + A.money(totalPagar));
     html += '<div class="dia-sec" data-sec="pagar"' + (aberto.pagar ? '' : ' style="display:none"') + '>';
     if (!aPagar.length) {
       html += A.empty('Nada a pagar', 'Repasses pendentes/parciais aparecem aqui.', 'money');
     } else {
-      html += '<div class="dia-tot red">Total a pagar: ' + A.money(totalPagar) + '</div>';
+      html += '<div class="dia-tot red" id="dia-tot-pagar">Total a pagar: ' + A.money(totalPagar) + '</div>';
+      html += '<div class="dia-note" style="color:var(--muted);font-weight:500">Ja pagou alguem que ainda aparece? Marca ✔ Paguei ou 🗑 remove.</div>';
       html += aPagar.map(linhaPagar).join('');
+      html += '<button class="btn ' + (conferido ? 'green' : 'sec') + ' sm block dia-conferi" style="margin-top:8px">' +
+        (conferido ? '✓ Conferido' : 'Conferi tudo, esta certo') + '</button>';
     }
     html += '</div>';
 
     // === SECAO 4: A RECEBER ===
-    html += secaoHead('receber', '💵 A receber', aReceber.length,
-      'total: ' + A.money(totalReceber));
+    html += secaoHead('receber', '💵 A receber', aReceber.length, 'total: ' + A.money(totalReceber));
     html += '<div class="dia-sec" data-sec="receber"' + (aberto.receber ? '' : ' style="display:none"') + '>';
     if (!aReceber.length) {
       html += A.empty('Nada a receber pendente', 'Entradas pendentes/parciais aparecem aqui.', 'money');
     } else {
-      html += '<div class="dia-tot green">Total a receber: ' + A.money(totalReceber) + '</div>';
+      html += '<div class="dia-tot green" id="dia-tot-receber">Total a receber: ' + A.money(totalReceber) + '</div>';
       html += aReceber.map(linhaReceber).join('');
     }
     html += '</div>';
 
     // === SECAO 5: FOLLOW-UP ===
     var estVis = verTodosEstimates ? estimates : estimates.slice(0, 12);
-    html += secaoHead('followup', '🔔 Follow-up (estimates parados)', estimates.length,
-      'mais antigos primeiro');
+    html += secaoHead('followup', '🔔 Follow-up (estimates)', estimates.length, 'mais antigos primeiro');
     html += '<div class="dia-sec" data-sec="followup"' + (aberto.followup ? '' : ' style="display:none"') + '>';
     if (!estimates.length) {
       html += A.empty('Sem estimates parados', 'Jobs em "Estimate Enviado" aparecem aqui.', 'estimate');
     } else {
       html += '<div class="dia-note">Dinheiro na mesa — cada follow-up vira job.</div>';
-      html += estVis.map(linhaEstimate).join('');
+      html += estVis.map(cardEstimate).join('');
       if (!verTodosEstimates && estimates.length > 12) {
         html += '<button class="btn sec sm block dia-vertodos" style="margin-top:8px">ver todos (' + estimates.length + ')</button>';
       }
@@ -299,10 +361,15 @@
     html += '</div>';
 
     root.innerHTML = html;
+    ligarEventos(root);
+  }
 
-    /* ----------------------- ligar secoes recolhiveis -------------------- */
+  /* ================================================ EVENTOS ================ */
+  function ligarEventos(root) {
+    // secoes recolhiveis
     root.querySelectorAll('.grp-h[data-toggle]').forEach(function (hEl) {
-      hEl.addEventListener('click', function () {
+      hEl.addEventListener('click', function (ev) {
+        if (ev.target.closest('.dia-act, button:not(.grp-h), a, input')) return;
         var k = hEl.getAttribute('data-toggle');
         aberto[k] = !aberto[k];
         var sec = root.querySelector('.dia-sec[data-sec="' + k + '"]');
@@ -312,7 +379,7 @@
       });
     });
 
-    /* ----------------------- guia de visita (toggle) --------------------- */
+    // guia de visita (toggle)
     root.querySelectorAll('[data-guia]').forEach(function (btn) {
       btn.addEventListener('click', function (ev) {
         ev.stopPropagation();
@@ -324,7 +391,7 @@
       });
     });
 
-    /* ----------------------- abrir job ----------------------------------- */
+    // abrir job
     root.querySelectorAll('[data-abrir-job]').forEach(function (btn) {
       btn.addEventListener('click', function (ev) {
         ev.stopPropagation();
@@ -332,31 +399,228 @@
       });
     });
 
-    /* ----------------------- WhatsApp (subs) ----------------------------- */
+    // WhatsApp (subs)
     root.querySelectorAll('[data-wa]').forEach(function (btn) {
       btn.addEventListener('click', function (ev) {
         ev.preventDefault(); ev.stopPropagation();
-        var w = wos.filter(function (x) { return x.id === btn.getAttribute('data-wa'); })[0];
+        var w = DADOS.wos.filter(function (x) { return x.id === btn.getAttribute('data-wa'); })[0];
         var url = w && waUrlSub(w);
         if (url) window.open(url, '_blank');
         else A.toast('Sub sem telefone cadastrado', 'err');
       });
     });
 
-    /* ----------------------- ver todos estimates ------------------------- */
+    // ver todos estimates
     var vtBtn = root.querySelector('.dia-vertodos');
-    if (vtBtn) vtBtn.addEventListener('click', function () {
-      verTodosEstimates = true;
-      A.pages.dia.render(root);
-    });
+    if (vtBtn) vtBtn.addEventListener('click', function () { verTodosEstimates = true; rerender(); });
 
-    // impede que o clique nos botoes de acao (ligar/mapa) borbulhe pro card
+    // impede clique de acao borbulhar pro card
     root.querySelectorAll('.dia-act').forEach(function (a) {
       a.addEventListener('click', function (ev) { ev.stopPropagation(); });
     });
+
+    /* ---------- SECAO 0: tarefas manuais ---------- */
+    var dtAdd = root.querySelector('#dt-add');
+    var dtInp = root.querySelector('#dt-novo');
+    if (dtAdd && dtInp) {
+      function addTarefa() {
+        var txt = dtInp.value.trim();
+        if (!txt) return;
+        dtAdd.disabled = true;
+        A.sb.from('dia_tarefas').insert({ texto: txt, done: false, data: A.hoje() }).select().single().then(function (r) {
+          dtAdd.disabled = false;
+          if (r.error) return A.toastErr(r.error);
+          DADOS.tarefas.push(r.data);
+          dtInp.value = '';
+          A.toast('Tarefa adicionada', 'ok');
+          rerender();
+        }).catch(function (e) { dtAdd.disabled = false; A.toastErr(e); });
+      }
+      dtAdd.addEventListener('click', addTarefa);
+      dtInp.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); addTarefa(); } });
+    }
+    // toggle done da tarefa manual
+    root.querySelectorAll('[data-dt-toggle]').forEach(function (el) {
+      el.addEventListener('click', function (ev) {
+        if (ev.target.closest('[data-dt-del]')) return;
+        var id = el.getAttribute('data-dt-toggle');
+        var t = DADOS.tarefas.filter(function (x) { return x.id === id; })[0];
+        if (!t) return;
+        var novo = !t.done;
+        A.sb.from('dia_tarefas').update({ done: novo, data: novo ? A.hoje() : t.data }).eq('id', id).then(function (r) {
+          if (r.error) return A.toastErr(r.error);
+          t.done = novo; if (novo) t.data = A.hoje();
+          A.toast(novo ? 'Feito ✓' : 'Reaberta', 'ok');
+          rerender();
+        });
+      });
+    });
+    // deletar tarefa manual
+    root.querySelectorAll('[data-dt-del]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var id = btn.getAttribute('data-dt-del');
+        var t = DADOS.tarefas.filter(function (x) { return x.id === id; })[0];
+        if (!t) return;
+        if (!A.confirmar('Excluir a tarefa "' + (t.texto || '') + '"?')) return;
+        A.sb.from('dia_tarefas').delete().eq('id', id).then(function (r) {
+          if (r.error) return A.toastErr(r.error);
+          DADOS.tarefas = DADOS.tarefas.filter(function (x) { return x.id !== id; });
+          A.toast('Tarefa removida', 'ok');
+          rerender();
+        });
+      });
+    });
+
+    /* ---------- SECAO 0/5: "liguei/contatei hoje" (grava nota, nao muda status) ---------- */
+    root.querySelectorAll('[data-nota-followup]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var jobId = btn.getAttribute('data-nota-followup');
+        btn.disabled = true;
+        A.sb.from('job_notes').insert({ job_id: jobId, data: A.hoje(), titulo: 'Follow-up', texto: 'Follow-up feito' }).then(function (r) {
+          btn.disabled = false;
+          if (r.error) return A.toastErr(r.error);
+          A.toast('Anotado: contatei hoje ✓', 'ok');
+          btn.textContent = '✓ contatei hoje';
+          btn.classList.remove('sec'); btn.classList.add('green');
+        }).catch(function (e) { btn.disabled = false; A.toastErr(e); });
+      });
+    });
+
+    /* ---------- SECAO 1/5: mudar status do job na hora ---------- */
+    root.querySelectorAll('[data-job-status]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var jobId = btn.getAttribute('data-job-status');
+        var novo = btn.getAttribute('data-status-novo');
+        var job = DADOS.jobs.filter(function (x) { return x.id === jobId; })[0];
+        if (!job) return;
+        btn.disabled = true;
+        A.sb.from('jobs').update({ status: novo }).eq('id', jobId).then(function (r) {
+          if (r.error) { btn.disabled = false; return A.toastErr(r.error); }
+          job.status = novo;
+          A.toast('Movido pra ' + novo, 'ok');
+          rerender();
+        }).catch(function (e) { btn.disabled = false; A.toastErr(e); });
+      });
+    });
+
+    /* ---------- SECAO 2: WO status (enviado/concluido) ---------- */
+    root.querySelectorAll('[data-wo-status]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var woId = btn.getAttribute('data-wo-status');
+        var novo = btn.getAttribute('data-status-novo');
+        var wo = DADOS.wos.filter(function (x) { return x.id === woId; })[0];
+        if (!wo) return;
+        btn.disabled = true;
+        A.sb.from('work_orders').update({ status: novo }).eq('id', woId).then(function (r) {
+          if (r.error) { btn.disabled = false; return A.toastErr(r.error); }
+          wo.status = novo;
+          A.toast('WO -> ' + novo, 'ok');
+          rerender();
+        }).catch(function (e) { btn.disabled = false; A.toastErr(e); });
+      });
+    });
+
+    /* ---------- SECAO 3: A pagar (Paguei / editar / remover) ---------- */
+    root.querySelectorAll('[data-pagar-pago]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var id = btn.getAttribute('data-pagar-pago');
+        var c = DADOS.caixa.filter(function (x) { return x.id === id; })[0];
+        if (!c) return;
+        btn.disabled = true;
+        A.sb.from('caixa').update({ status: 'pago', data: A.hoje() }).eq('id', id).then(function (r) {
+          if (r.error) { btn.disabled = false; return A.toastErr(r.error); }
+          c.status = 'pago'; c.data = A.hoje();
+          A.toast('Pago pro ' + nomePagar(c), 'ok');
+          rerender();
+        }).catch(function (e) { btn.disabled = false; A.toastErr(e); });
+      });
+    });
+    root.querySelectorAll('[data-pagar-edit]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var id = btn.getAttribute('data-pagar-edit');
+        var c = DADOS.caixa.filter(function (x) { return x.id === id; })[0];
+        if (!c) return;
+        var atual = c.valor === null || c.valor === undefined ? '' : String(c.valor);
+        var v = window.prompt('Corrigir valor do repasse pro ' + nomePagar(c) + ':', atual);
+        if (v === null) return;
+        var novo = A.num(v);
+        if (novo === null) return A.toast('Valor invalido', 'err');
+        A.sb.from('caixa').update({ valor: novo }).eq('id', id).then(function (r) {
+          if (r.error) return A.toastErr(r.error);
+          c.valor = novo;
+          A.toast('Valor atualizado', 'ok');
+          rerender();
+        });
+      });
+    });
+    root.querySelectorAll('[data-pagar-del]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var id = btn.getAttribute('data-pagar-del');
+        var c = DADOS.caixa.filter(function (x) { return x.id === id; })[0];
+        if (!c) return;
+        if (!A.confirmar('Remover esse repasse (' + A.money(c.valor) + ' pro ' + nomePagar(c) + ')? So faca isso se o lancamento nao existe de verdade.')) return;
+        A.sb.from('caixa').delete().eq('id', id).then(function (r) {
+          if (r.error) return A.toastErr(r.error);
+          DADOS.caixa = DADOS.caixa.filter(function (x) { return x.id !== id; });
+          A.toast('Repasse removido', 'ok');
+          rerender();
+        });
+      });
+    });
+    var conferiBtn = root.querySelector('.dia-conferi');
+    if (conferiBtn) conferiBtn.addEventListener('click', function () {
+      conferido = !conferido;
+      this.textContent = conferido ? '✓ Conferido' : 'Conferi tudo, esta certo';
+      this.classList.toggle('green', conferido);
+      this.classList.toggle('sec', !conferido);
+      if (conferido) A.toast('Marcado como conferido', 'ok');
+    });
+
+    /* ---------- SECAO 4: A receber (Recebi / editar) ---------- */
+    root.querySelectorAll('[data-receber-pago]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var id = btn.getAttribute('data-receber-pago');
+        var c = DADOS.caixa.filter(function (x) { return x.id === id; })[0];
+        if (!c) return;
+        btn.disabled = true;
+        A.sb.from('caixa').update({ status: 'pago', data: A.hoje() }).eq('id', id).then(function (r) {
+          if (r.error) { btn.disabled = false; return A.toastErr(r.error); }
+          c.status = 'pago'; c.data = A.hoje();
+          A.toast('Recebido de ' + (c.cliente || 'cliente') + ' ✓', 'ok');
+          rerender();
+        }).catch(function (e) { btn.disabled = false; A.toastErr(e); });
+      });
+    });
+    root.querySelectorAll('[data-receber-edit]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var id = btn.getAttribute('data-receber-edit');
+        var c = DADOS.caixa.filter(function (x) { return x.id === id; })[0];
+        if (!c) return;
+        var atual = c.valor === null || c.valor === undefined ? '' : String(c.valor);
+        var v = window.prompt('Corrigir valor a receber de ' + (c.cliente || 'cliente') + ':', atual);
+        if (v === null) return;
+        var novo = A.num(v);
+        if (novo === null) return A.toast('Valor invalido', 'err');
+        A.sb.from('caixa').update({ valor: novo }).eq('id', id).then(function (r) {
+          if (r.error) return A.toastErr(r.error);
+          c.valor = novo;
+          A.toast('Valor atualizado', 'ok');
+          rerender();
+        });
+      });
+    });
   }
 
-  /* ------------------------------------------------ blocos de UI ----------- */
+  /* ================================================ BLOCOS DE UI =========== */
   function secaoHead(key, titulo, count, sub) {
     return '<div class="grp-h" data-toggle="' + key + '">' +
       A.esc(titulo) + ' <span class="count">' + count + '</span>' +
@@ -364,7 +628,42 @@
       '<span class="arr">' + (aberto[key] ? '▲ recolher' : '▼ abrir') + '</span></div>';
   }
 
-  // --- card de orcamento (o mais rico) ---
+  /* ---- SECAO 0: itens do checklist ---- */
+  function chkAutoProposal(j) {
+    return '<div class="dia-chk auto">' +
+      '<span class="dia-chk-box auto" title="some sozinho quando o status virar Estimate Enviado">📄</span>' +
+      '<div class="dia-chk-main">' +
+      '<div class="dia-chk-tx">Enviar proposal pro <b>' + A.esc(j.cliente || '(sem nome)') + '</b>' +
+      (j.tipo_servico ? ' <span class="muted">(' + A.esc(j.tipo_servico) + ')</span>' : '') + '</div>' +
+      '<div class="dia-chk-acts">' +
+      '<button class="btn sec sm dia-act" data-abrir-job="' + A.esc(j.id) + '">' + A.icon('open', 14) + ' abrir job</button>' +
+      '</div></div></div>';
+  }
+  function chkAutoFollow(j) {
+    var dias = diasDesde(j.created_at);
+    return '<div class="dia-chk auto">' +
+      '<span class="dia-chk-box auto">📞</span>' +
+      '<div class="dia-chk-main">' +
+      '<div class="dia-chk-tx">Follow-up <b>' + A.esc(j.cliente || '(sem nome)') + '</b>' +
+      (j.cidade_st ? ' <span class="muted">(' + A.esc(j.cidade_st) + ')</span>' : '') +
+      ' — estimate ha <b>' + dias + '</b> dia' + (dias === 1 ? '' : 's') + '</div>' +
+      '<div class="dia-chk-acts">' +
+      btnLigar(j.telefone) +
+      '<button class="btn sec sm dia-act" data-abrir-job="' + A.esc(j.id) + '">' + A.icon('open', 14) + ' abrir job</button>' +
+      '<button class="btn sec sm dia-act" data-nota-followup="' + A.esc(j.id) + '">✔ contatei hoje</button>' +
+      '</div></div></div>';
+  }
+  function chkManual(t) {
+    return '<div class="dia-chk manual' + (t.done ? ' done' : '') + '">' +
+      '<span class="dia-chk-box' + (t.done ? ' on' : '') + '" data-dt-toggle="' + A.esc(t.id) + '">' + (t.done ? '✓' : '') + '</span>' +
+      '<div class="dia-chk-main" data-dt-toggle="' + A.esc(t.id) + '" style="cursor:pointer">' +
+      '<div class="dia-chk-tx">' + A.esc(t.texto || '') + '</div>' +
+      '</div>' +
+      '<button class="icon-btn red dia-act" data-dt-del="' + A.esc(t.id) + '" title="excluir">✕</button>' +
+      '</div>';
+  }
+
+  /* ---- SECAO 1: card de orcamento ---- */
   function cardOrcamento(j) {
     var atrasada = j.data_visita && ehHojeOuPassado(j.data_visita);
     var dataTxt = j.data_visita
@@ -385,7 +684,13 @@
       '<div class="dia-actions">' +
       btnLigar(j.telefone) +
       btnMapa(j.endereco, j.cidade_st) +
-      '<button class="btn sec sm" data-abrir-job="' + A.esc(j.id) + '">' + A.icon('open', 15) + ' Abrir job</button>' +
+      '<button class="btn sec sm dia-act" data-abrir-job="' + A.esc(j.id) + '">' + A.icon('open', 15) + ' Abrir job</button>' +
+      '</div>' +
+      // acoes de status (mudam jobs.status na hora)
+      '<div class="dia-actions dia-statusrow">' +
+      '<button class="btn green sm dia-act" data-job-status="' + A.esc(j.id) + '" data-status-novo="' + ST.VISITA_FEITA + '">✔ Visita feita</button>' +
+      '<button class="btn green sm dia-act" data-job-status="' + A.esc(j.id) + '" data-status-novo="' + ST.ESTIMATE + '">📄 Estimate enviado</button>' +
+      '<button class="btn danger sm dia-act" data-job-status="' + A.esc(j.id) + '" data-status-novo="' + ST.PERDIDO + '">✖ Perdido</button>' +
       '</div>' +
       '<button class="dia-guia-btn" data-guia="1">🔎 O que olhar na visita</button>' +
       '<div class="dia-guia" style="display:none">' +
@@ -398,7 +703,7 @@
       '</div>';
   }
 
-  // --- card "hoje na rua" (WO do sub) ---
+  /* ---- SECAO 2: card sub na rua ---- */
   function cardRua(w) {
     var hojeTag = ehHoje(w.data) ? '<span class="badge orange">HOJE</span> ' : '';
     return '<div class="card dia-card">' +
@@ -419,65 +724,94 @@
       '<div class="dia-actions">' +
       btnMapa(w.endereco, w.cidade_st) +
       (telSubDigitos(w.sub_id)
-        ? '<button class="btn green sm dia-act" data-wa="' + A.esc(w.id) + '">' + A.icon('phone', 15) + ' WhatsApp sub</button>'
+        ? '<button class="btn green sm dia-act" data-wa="' + A.esc(w.id) + '">' + A.icon('phone', 15) + ' WhatsApp</button>'
         : '') +
       '<a class="btn sec sm dia-act" href="#/wo/' + A.esc(w.id) + '">Abrir WO</a>' +
+      '</div>' +
+      '<div class="dia-actions dia-statusrow">' +
+      '<button class="btn sec sm dia-act" data-wo-status="' + A.esc(w.id) + '" data-status-novo="Enviado ao sub">✔ Enviado</button>' +
+      '<button class="btn green sm dia-act" data-wo-status="' + A.esc(w.id) + '" data-status-novo="Concluido">✔ Concluido</button>' +
       '</div>' +
       '</div>';
   }
 
-  // --- linha "a pagar" (repasse) ---
-  function linhaPagar(c) {
-    var sub = A.cache.subById && A.cache.subById[subIdDePagar(c)];
-    var semW9 = sub && sub.w9 === false;
-    var quem = c.pago_para || (sub && sub.nome) || '—';
-    return '<div class="li-row">' +
-      '<div class="main"><div class="t1">' + A.esc(quem) +
-      (semW9 ? ' <span class="badge red">⚠ SEM W9 - cobrar antes de pagar</span>' : '') + '</div>' +
-      '<div class="t2">' + A.esc(c.cliente || descCurta(c) || '—') +
-      (c.status === 'parcial' ? ' · <b style="color:var(--orange)">parcial</b>' : ' · pendente') +
-      '</div></div>' +
-      '<b style="color:var(--red);white-space:nowrap">' + A.money(c.valor) + '</b>' +
-      '</div>';
-  }
-  // acha o sub a partir do lancamento de repasse (pago_para casa com nome do sub)
-  function subIdDePagar(c) {
+  /* ---- SECAO 3: linha a pagar ---- */
+  function subDePagar(c) {
     var alvo = String(c.pago_para || '').toLowerCase().trim();
     if (!alvo) return null;
     var subs = A.cache.subs || [];
     for (var i = 0; i < subs.length; i++) {
-      if (String(subs[i].nome || '').toLowerCase().trim() === alvo) return subs[i].id;
-      if (String(subs[i].id || '').toLowerCase().trim() === alvo) return subs[i].id;
+      if (String(subs[i].nome || '').toLowerCase().trim() === alvo) return subs[i];
+      if (String(subs[i].id || '').toLowerCase().trim() === alvo) return subs[i];
     }
     return null;
   }
-
-  // --- linha "a receber" (entrada) ---
-  function linhaReceber(c) {
-    return '<div class="li-row">' +
-      '<div class="main"><div class="t1">' + A.esc(c.cliente || descCurta(c) || '—') + '</div>' +
-      '<div class="t2">' + A.esc(descCurta(c) || 'entrada') +
-      (c.status === 'parcial' ? ' · <b style="color:var(--orange)">parcial</b>' : ' · pendente') +
-      (c.data ? ' · ' + A.esc(A.fmtData(c.data)) : '') +
-      '</div></div>' +
-      '<b style="color:var(--green);white-space:nowrap">' + A.money(c.valor) + '</b>' +
-      '</div>';
+  function nomePagar(c) {
+    var s = subDePagar(c);
+    return c.pago_para || (s && s.nome) || 'sub';
   }
   function descCurta(c) {
     var d = String(c.descricao || '').replace(/^\[(\w+)\]\s*/, '').trim();
     if (d.length > 60) d = d.slice(0, 57) + '…';
     return d;
   }
+  function linhaPagar(c) {
+    var sub = subDePagar(c);
+    var semW9 = sub && sub.w9 === false;
+    var quem = c.pago_para || (sub && sub.nome) || '—';
+    return '<div class="dia-fin">' +
+      '<div class="dia-fin-main">' +
+      '<div class="t1">' + A.esc(quem) +
+      (semW9 ? ' <span class="badge red">⚠ SEM W9</span>' : '') + '</div>' +
+      '<div class="t2">' + A.esc(c.cliente || descCurta(c) || '—') +
+      (c.status === 'parcial' ? ' · <b style="color:var(--orange)">parcial</b>' : ' · pendente') +
+      '</div>' +
+      '<div class="dia-fin-acts">' +
+      '<button class="btn green sm dia-act" data-pagar-pago="' + A.esc(c.id) + '">✔ Paguei</button>' +
+      '<button class="btn sec sm dia-act" data-pagar-edit="' + A.esc(c.id) + '">✎ valor</button>' +
+      '<button class="btn danger sm dia-act" data-pagar-del="' + A.esc(c.id) + '">🗑 remover</button>' +
+      '</div>' +
+      '</div>' +
+      '<b class="dia-fin-vl red">' + A.money(c.valor) + '</b>' +
+      '</div>';
+  }
 
-  // --- linha follow-up (estimate) ---
-  function linhaEstimate(j) {
-    return '<div class="li-row dia-est" data-abrir-job="' + A.esc(j.id) + '" style="cursor:pointer">' +
-      '<div class="main"><div class="t1">' + A.esc(j.cliente || '(sem nome)') + '</div>' +
-      '<div class="t2">' + A.esc(j.tipo_servico || 'servico?') +
-      (j.cidade_st ? ' · ' + A.esc(j.cidade_st) : '') +
-      (j.created_at ? ' · enviado ' + A.esc(A.fmtData(j.created_at)) : '') +
-      '</div></div>' +
+  /* ---- SECAO 4: linha a receber ---- */
+  function linhaReceber(c) {
+    return '<div class="dia-fin">' +
+      '<div class="dia-fin-main">' +
+      '<div class="t1">' + A.esc(c.cliente || descCurta(c) || '—') + '</div>' +
+      '<div class="t2">' + A.esc(descCurta(c) || 'entrada') +
+      (c.status === 'parcial' ? ' · <b style="color:var(--orange)">parcial</b>' : ' · pendente') +
+      (c.data ? ' · ' + A.esc(A.fmtData(c.data)) : '') +
+      '</div>' +
+      '<div class="dia-fin-acts">' +
+      '<button class="btn green sm dia-act" data-receber-pago="' + A.esc(c.id) + '">✔ Recebi</button>' +
+      '<button class="btn sec sm dia-act" data-receber-edit="' + A.esc(c.id) + '">✎ valor</button>' +
+      '</div>' +
+      '</div>' +
+      '<b class="dia-fin-vl green">' + A.money(c.valor) + '</b>' +
+      '</div>';
+  }
+
+  /* ---- SECAO 5: card follow-up (estimate) ---- */
+  function cardEstimate(j) {
+    var dias = diasDesde(j.created_at);
+    return '<div class="card dia-card dia-card-sm">' +
+      '<div class="dia-card-top">' +
+      '<div class="dia-nm" style="font-size:14.5px">' + A.esc(j.cliente || '(sem nome)') + '</div>' +
+      (dias !== null ? '<span class="muted" style="font-size:12px;white-space:nowrap">ha ' + dias + 'd</span>' : '') +
+      '</div>' +
+      '<div class="dia-sv" style="margin:2px 0">' + A.icon(window.IAC_ICONS.forService(j.tipo_servico), 14) + ' ' +
+      A.esc(j.tipo_servico || 'servico?') + (j.cidade_st ? ' · ' + A.esc(j.cidade_st) : '') +
+      (j.created_at ? ' · enviado ' + A.esc(A.fmtData(j.created_at)) : '') + '</div>' +
+      '<div class="dia-actions">' +
       btnLigar(j.telefone) +
+      '<button class="btn sec sm dia-act" data-abrir-job="' + A.esc(j.id) + '">' + A.icon('open', 15) + ' Abrir job</button>' +
+      '<button class="btn green sm dia-act" data-job-status="' + A.esc(j.id) + '" data-status-novo="' + ST.SCHEDULE + '">✔ Fechou</button>' +
+      '<button class="btn danger sm dia-act" data-job-status="' + A.esc(j.id) + '" data-status-novo="' + ST.PERDIDO + '">✖ Perdido</button>' +
+      '<button class="btn sec sm dia-act" data-nota-followup="' + A.esc(j.id) + '">📞 liguei hoje</button>' +
+      '</div>' +
       '</div>';
   }
 })();
