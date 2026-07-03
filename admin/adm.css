@@ -365,3 +365,73 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
 /* ---------- badges de documentacao dos subs (v2.1) ---------- */
 .badge.badge-doc { font-size: 12px; padding: 5px 12px; }
 .badge.red.badge-doc { box-shadow: 0 0 0 1.5px var(--red) inset; }
+
+/* ============================================================
+   MEU DIA (dia.js) — roteiro pessoal do Italo (home)
+   ============================================================ */
+.dia-hero {
+  background: linear-gradient(135deg, var(--warm), #55402f);
+  color: var(--light); border-radius: var(--radius);
+  padding: 16px 18px; margin-bottom: 6px; box-shadow: var(--shadow);
+}
+.dia-hi { font-size: 22px; font-weight: 800; letter-spacing: -.3px; }
+.dia-date { font-size: 13px; opacity: .85; margin-top: 2px; text-transform: capitalize; }
+.dia-sum {
+  margin-top: 10px; font-size: 13px; font-weight: 600;
+  background: rgba(255, 255, 255, .12); border-radius: 10px; padding: 8px 11px;
+  line-height: 1.5;
+}
+.dia-sec-sub { margin-left: 8px; color: var(--muted); font-size: 11.5px; font-weight: 500; }
+.dia-sec { margin-bottom: 4px; }
+
+.dia-tot {
+  font-weight: 800; font-size: 14px; padding: 9px 13px; border-radius: 11px;
+  margin-bottom: 8px;
+}
+.dia-tot.red { background: #fdeae6; color: var(--red); }
+.dia-tot.green { background: #e2f2e8; color: var(--green); }
+.dia-note {
+  font-size: 12.5px; color: var(--orange); font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.dia-card { padding: 14px; margin-bottom: 10px; }
+.dia-card-top { display: flex; align-items: center; gap: 8px; }
+.dia-nm { font-weight: 800; color: var(--warm); font-size: 15.5px; flex: 1; min-width: 0; }
+.dia-nm .badge { vertical-align: middle; }
+.dia-sv {
+  display: flex; align-items: center; gap: 6px; margin: 6px 0 4px;
+  font-size: 13.5px; color: var(--ink); font-weight: 600;
+}
+.dia-sv .iac-icon { color: var(--orange); flex: none; }
+.dia-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 4px 0; font-size: 12.5px; }
+.dia-visita {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--muted); font-weight: 600;
+}
+.dia-visita .iac-icon { color: var(--muted); }
+.dia-visita.atrasada { color: var(--orange); font-weight: 800; }
+.dia-visita.atrasada .iac-icon { color: var(--orange); }
+.dia-visita.sem { color: var(--muted); font-weight: 500; font-style: italic; }
+.dia-rep { color: var(--warm); font-weight: 700; }
+.dia-addr {
+  display: flex; align-items: center; gap: 5px; font-size: 12px;
+  margin: 4px 0 2px; min-width: 0;
+}
+.dia-addr .iac-icon { color: var(--muted); flex: none; }
+
+.dia-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.dia-actions .btn { min-height: 44px; padding: 8px 14px; }
+.dia-act { text-decoration: none; }
+
+.dia-guia-btn {
+  width: 100%; margin-top: 10px; min-height: 44px;
+  background: var(--light); color: var(--warm); border: 1px dashed var(--orange);
+  border-radius: 11px; font-weight: 700; font-size: 13px; cursor: pointer;
+}
+.dia-guia { margin-top: 10px; background: var(--light); border-radius: 11px; padding: 12px 14px; }
+.dia-guia-ttl { font-weight: 800; color: var(--warm); font-size: 13px; margin-bottom: 6px; }
+.dia-guia-list { margin: 0 0 8px; padding-left: 18px; }
+.dia-guia-list li { font-size: 13px; color: var(--ink); margin-bottom: 5px; line-height: 1.4; }
+
+.dia-est:active { background: var(--light); }

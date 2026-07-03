@@ -309,12 +309,12 @@
   // -------------------------------------------------------------- router / shell
   var pages = {}; // nome -> { title, render(root, args) }
   function route(hash) {
-    var h = (hash || location.hash || '#/dash').replace(/^#\/?/, '');
+    var h = (hash || location.hash || '#/dia').replace(/^#\/?/, '');
     var qs = '';
     var qi = h.indexOf('?');
     if (qi >= 0) { qs = h.slice(qi + 1); h = h.slice(0, qi); }
     var parts = h.split('/').filter(Boolean);
-    return { page: parts[0] || 'dash', args: parts.slice(1), query: parseQS(qs) };
+    return { page: parts[0] || 'dia', args: parts.slice(1), query: parseQS(qs) };
   }
   function parseQS(qs) {
     var o = {};
@@ -327,6 +327,7 @@
   }
 
   var NAV = [
+    { id: 'dia', label: 'Dia', icon: 'schedule' },
     { id: 'dash', label: 'Inicio', icon: 'dashboard' },
     { id: 'jobs', label: 'Jobs', icon: 'jobs' },
     { id: 'wo', label: 'WOs', icon: 'workorders' },
@@ -350,7 +351,7 @@
       }).join('') +
       '</nav>';
     document.getElementById('btn-logout').addEventListener('click', function () {
-      sb.auth.signOut().then(function () { location.hash = '#/dash'; });
+      sb.auth.signOut().then(function () { location.hash = '#/dia'; });
     });
   }
 
@@ -361,7 +362,7 @@
     document.querySelectorAll('#nav a').forEach(function (a) {
       a.classList.toggle('active', a.getAttribute('data-nav') === r.page);
     });
-    var pg = pages[r.page] || pages.dash;
+    var pg = pages[r.page] || pages.dia || pages.dash;
     var root = document.getElementById('page');
     root.innerHTML = loading();
     window.scrollTo(0, 0);
