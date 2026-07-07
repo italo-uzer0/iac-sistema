@@ -436,6 +436,13 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
 
 .dia-est:active { background: var(--light); }
 
+/* ---- Roteiro do dia (timeline) ---- */
+.dia-rt-hora { font-size: 20px; font-weight: 900; color: var(--warm); letter-spacing: .3px; }
+.dia-rt-fim { font-size: 13px; font-weight: 600; color: var(--muted); }
+.dia-card.done { opacity: .6; }
+.dia-card.done .dia-rt-hora { color: var(--muted); }
+.dia-rt-chk { margin-top: 8px; }
+
 /* ---- linha de acoes de status (2a fileira de botoes no card) ---- */
 .dia-statusrow { margin-top: 8px; }
 

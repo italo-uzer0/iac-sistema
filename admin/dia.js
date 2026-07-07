@@ -185,12 +185,14 @@
   }
 
   /* ================================================ estado das secoes ====== */
-  var aberto = { chk: true, orc: true, rua: true, pagar: true, receber: true, followup: true };
+  var aberto = { roteiro: true, chk: true, orc: true, rua: true, pagar: true, receber: true, followup: true };
   var verTodosEstimates = false;
   var conferido = false; // "conferi tudo" na secao A pagar — so visual
 
   // guardo os dados carregados pra re-render sem refetch pesado
-  var DADOS = { jobs: [], wos: [], caixa: [], tarefas: [] };
+  var DADOS = { jobs: [], wos: [], caixa: [], tarefas: [], agenda: [] };
+  var roteiroAberto = true;
+  var chkStopAberto = {}; // id da parada -> checklist expandido?
 
   A.pages.dia = {
     render: function (root) {
@@ -198,13 +200,15 @@
         A.sb.from('jobs').select('id,cliente,telefone,endereco,cidade_st,tipo_servico,status,data_visita,created_at').order('created_at', { ascending: false }),
         A.sb.from('work_orders').select('id,job_id,sub_id,cliente,data,hora,status,endereco,cidade_st,servico,valor_repasse,pendencia,token,obs').order('data', { ascending: true, nullsFirst: false }),
         A.sb.from('caixa').select('id,data,tipo,cliente,job_id,descricao,valor,status,pago_para').order('valor', { ascending: false }),
-        A.sb.from('dia_tarefas').select('*').order('ordem', { ascending: true }).order('created_at', { ascending: true })
+        A.sb.from('dia_tarefas').select('*').order('ordem', { ascending: true }).order('created_at', { ascending: true }),
+        A.sb.from('agenda').select('*').eq('data', A.hoje()).order('hora_inicio', { ascending: true, nullsFirst: false })
       ]).then(function (rs) {
         rs.forEach(function (r) { if (r.error) throw r.error; });
         DADOS.jobs = rs[0].data || [];
         DADOS.wos = rs[1].data || [];
         DADOS.caixa = rs[2].data || [];
         DADOS.tarefas = rs[3].data || [];
+        DADOS.agenda = rs[4].data || [];
         desenhar(root);
       });
     }
@@ -285,6 +289,23 @@
       '<div class="dia-date">' + A.esc(A.fmtDataDia(hojeISO)) + '</div>' +
       '<div class="dia-sum">' + A.esc(resumo) + '</div>' +
       '</div>';
+
+    // === ROTEIRO DE HOJE (timeline no topo) ===
+    var paradas = montarParadas(jobs, wos, DADOS.agenda, hojeISO);
+    html += secaoHead('roteiro', '🗓️ Roteiro de hoje', paradas.length, 'sua rota do dia');
+    html += '<div class="dia-sec" data-sec="roteiro"' + (aberto.roteiro ? '' : ' style="display:none"') + '>';
+    html += '<div class="dia-addtask">' +
+      '<input id="rt-hora" placeholder="hora (ex 8:00 AM)" style="max-width:120px" />' +
+      '<input id="rt-tit" placeholder="➕ nova parada (o que / quem)" />' +
+      '<button class="btn sm" id="rt-add">Add</button>' +
+      '</div>' +
+      '<input id="rt-end" placeholder="endereco da parada (opcional)" style="width:100%;margin-bottom:8px" />';
+    if (!paradas.length) {
+      html += A.empty('Nenhuma parada hoje', 'Eventos da agenda, visitas e WOs de hoje aparecem aqui em ordem de horario.', 'schedule');
+    } else {
+      html += paradas.map(cardParada).join('');
+    }
+    html += '</div>';
 
     // === SECAO 0: CHECKLIST DO DIA ===
     html += secaoHead('chk', '✅ Checklist do dia', chkPendentes, 'o esqueminha de hoje');
@@ -418,6 +439,56 @@
     root.querySelectorAll('.dia-act').forEach(function (a) {
       a.addEventListener('click', function (ev) { ev.stopPropagation(); });
     });
+
+    /* ---------- ROTEIRO: toggle checklist da parada ---------- */
+    root.querySelectorAll('[data-rt-chk]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var id = btn.getAttribute('data-rt-chk');
+        chkStopAberto[id] = !chkStopAberto[id];
+        rerender();
+      });
+    });
+    /* ---------- ROTEIRO: marcar parada feita (agenda.done) ---------- */
+    root.querySelectorAll('[data-rt-done]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var id = btn.getAttribute('data-rt-done');
+        var a = DADOS.agenda.filter(function (x) { return x.id === id; })[0];
+        if (!a) return;
+        var novo = !a.done;
+        btn.disabled = true;
+        A.sb.from('agenda').update({ done: novo }).eq('id', id).then(function (r) {
+          btn.disabled = false;
+          if (r.error) return A.toastErr(r.error);
+          a.done = novo;
+          A.toast(novo ? 'Parada feita ✓' : 'Reaberta', 'ok');
+          rerender();
+        }).catch(function (e) { btn.disabled = false; A.toastErr(e); });
+      });
+    });
+    /* ---------- ROTEIRO: adicionar parada manual ---------- */
+    var rtAdd = root.querySelector('#rt-add');
+    if (rtAdd) {
+      rtAdd.addEventListener('click', function () {
+        var tit = (root.querySelector('#rt-tit') || {}).value;
+        tit = (tit || '').trim();
+        if (!tit) return A.toast('Escreve o que e a parada', 'err');
+        var hora = ((root.querySelector('#rt-hora') || {}).value || '').trim() || null;
+        var end = ((root.querySelector('#rt-end') || {}).value || '').trim() || null;
+        rtAdd.disabled = true;
+        A.sb.from('agenda').insert({
+          data: A.hoje(), hora_inicio: hora, titulo: tit, endereco: end,
+          tipo: 'outro', origem: 'manual', checklist: [], done: false
+        }).select().single().then(function (r) {
+          rtAdd.disabled = false;
+          if (r.error) return A.toastErr(r.error);
+          DADOS.agenda.push(r.data);
+          A.toast('Parada adicionada', 'ok');
+          rerender();
+        }).catch(function (e) { rtAdd.disabled = false; A.toastErr(e); });
+      });
+    }
 
     /* ---------- SECAO 0: tarefas manuais ---------- */
     var dtAdd = root.querySelector('#dt-add');
@@ -661,6 +732,127 @@
       '</div>' +
       '<button class="icon-btn red dia-act" data-dt-del="' + A.esc(t.id) + '" title="excluir">✕</button>' +
       '</div>';
+  }
+
+  /* ================================================ ROTEIRO DO DIA ========= */
+  // hora ("8:00 AM" | "17:00" | "8am") -> minutos desde 0h (pra ordenar). null = fim.
+  function horaMin(h) {
+    if (!h) return 100000;
+    var s = String(h).trim().toLowerCase();
+    var m = s.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+    if (!m) return 100000;
+    var hh = parseInt(m[1], 10), mm = m[2] ? parseInt(m[2], 10) : 0;
+    if (m[3] === 'pm' && hh < 12) hh += 12;
+    if (m[3] === 'am' && hh === 12) hh = 0;
+    return hh * 60 + mm;
+  }
+  function horaLabel(h) {
+    if (!h) return '—';
+    var s = String(h).trim();
+    if (/am|pm/i.test(s)) return s.toUpperCase().replace(/\s+/g, ' ');
+    var m = s.match(/^(\d{1,2}):(\d{2})/);
+    if (!m) return s;
+    var hh = parseInt(m[1], 10), mm = m[2];
+    var ap = hh >= 12 ? 'PM' : 'AM';
+    var h12 = hh % 12; if (h12 === 0) h12 = 12;
+    return h12 + ':' + mm + ' ' + ap;
+  }
+  function normEnd(s) {
+    return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 18);
+  }
+  // junta agenda + WOs de hoje + visitas de hoje numa timeline unica
+  function montarParadas(jobs, wos, agenda, hojeISO) {
+    var stops = [];
+    var vistos = {}; // normEnd -> true (dedup entre fontes)
+
+    (agenda || []).forEach(function (a) {
+      var chk = Array.isArray(a.checklist) ? a.checklist : [];
+      var oquefazer = a.notas || '';
+      if (!chk.length && a.tipo === 'visita') chk = guiaVisita(a.titulo);
+      stops.push({
+        id: 'a-' + a.id, source: 'agenda', agendaId: a.id,
+        hora: a.hora_inicio, horaFim: a.hora_fim, titulo: a.titulo || '(sem titulo)',
+        endereco: a.endereco, cidade: '', tel: a.contato_tel, tipo: a.tipo || 'outro',
+        oquefazer: oquefazer, checklist: chk, done: !!a.done, jobId: a.job_id
+      });
+      if (a.endereco) vistos[normEnd(a.endereco)] = true;
+    });
+
+    (wos || []).forEach(function (w) {
+      if (!ehHoje(w.data)) return;
+      var st = String(w.status || '');
+      if (st !== 'A enviar' && st !== 'Em andamento' && st !== 'Enviado ao sub') return;
+      if (w.endereco && vistos[normEnd(w.endereco)]) return; // ja coberto pela agenda
+      stops.push({
+        id: 'w-' + w.id, source: 'wo', woId: w.id,
+        hora: w.hora, horaFim: null,
+        titulo: (w.cliente || '—') + ' · ' + A.subNome(w.sub_id),
+        endereco: w.endereco, cidade: w.cidade_st, tel: null, tipo: 'servico',
+        oquefazer: w.servico || '', checklist: [], done: st === 'Concluido',
+        token: w.token, jobId: w.job_id
+      });
+      if (w.endereco) vistos[normEnd(w.endereco)] = true;
+    });
+
+    (jobs || []).forEach(function (j) {
+      if (!ehHoje(j.data_visita)) return;
+      if (!ehOrcamento(j)) return;
+      if (j.endereco && vistos[normEnd(j.endereco)]) return;
+      stops.push({
+        id: 'j-' + j.id, source: 'visita', jobId: j.id,
+        hora: null, horaFim: null,
+        titulo: (j.cliente || '(sem nome)') + ' · visita',
+        endereco: j.endereco, cidade: j.cidade_st, tel: j.telefone, tipo: 'visita',
+        oquefazer: j.tipo_servico || 'orcamento', checklist: guiaVisita(j.tipo_servico), done: false
+      });
+    });
+
+    stops.sort(function (a, b) { return horaMin(a.hora) - horaMin(b.hora); });
+    return stops;
+  }
+
+  function cardParada(p) {
+    var mapsUrl = p.endereco
+      ? 'https://maps.google.com/?q=' + encodeURIComponent([p.endereco, p.cidade].filter(Boolean).join(', '))
+      : null;
+    var tipoBadge = { visita: '<span class="badge warm">visita</span>',
+      servico: '<span class="badge orange">servico</span>',
+      pessoal: '<span class="badge">pessoal</span>',
+      outro: '<span class="badge">agenda</span>' }[p.tipo] || '';
+    var chkAberto = !!chkStopAberto[p.id];
+    var html = '<div class="card dia-card' + (p.done ? ' done' : '') + '">' +
+      '<div class="dia-card-top">' +
+      '<div class="dia-nm"><span class="dia-rt-hora">' + A.esc(horaLabel(p.hora)) +
+      (p.horaFim ? '<span class="dia-rt-fim"> – ' + A.esc(horaLabel(p.horaFim)) + '</span>' : '') + '</span></div>' +
+      tipoBadge +
+      '</div>' +
+      '<div class="dia-sv" style="font-weight:600">' + (p.done ? '✅ ' : '') + A.esc(p.titulo) + '</div>' +
+      (p.oquefazer ? '<div class="dia-meta muted">' + A.esc(p.oquefazer) + '</div>' : '') +
+      (p.endereco ? '<div class="dia-addr muted">' + A.icon('map', 13) + ' ' +
+        A.esc([p.endereco, p.cidade].filter(Boolean).join(', ')) + '</div>' : '');
+    // acoes
+    html += '<div class="dia-actions">';
+    if (mapsUrl) html += '<a class="btn sec sm dia-act" href="' + A.esc(mapsUrl) + '" target="_blank" rel="noopener">' + A.icon('map', 15) + ' Mapa</a>';
+    if (p.tel) html += btnLigar(p.tel);
+    if (p.woId) html += '<a class="btn sec sm dia-act" href="#/wo/' + A.esc(p.woId) + '">Abrir WO</a>';
+    if (p.jobId && p.source !== 'wo') html += '<button class="btn sec sm dia-act" data-abrir-job="' + A.esc(p.jobId) + '">' + A.icon('open', 15) + ' Job</button>';
+    if (p.checklist && p.checklist.length)
+      html += '<button class="btn sec sm dia-act" data-rt-chk="' + A.esc(p.id) + '">' + (chkAberto ? '🔽 esconder checklist' : '✅ checklist') + '</button>';
+    if (p.source === 'agenda')
+      html += '<button class="btn ' + (p.done ? 'green' : 'sec') + ' sm dia-act" data-rt-done="' + A.esc(p.agendaId) + '">' + (p.done ? '✓ feita' : '✔ parada feita') + '</button>';
+    html += '</div>';
+    // checklist expansivel
+    if (p.checklist && p.checklist.length) {
+      html += '<div class="dia-guia dia-rt-chk"' + (chkAberto ? '' : ' style="display:none"') + '>' +
+        '<ul class="dia-guia-list">' +
+        p.checklist.map(function (item) {
+          var t = (item && typeof item === 'object') ? (item.item || item.texto || '') : item;
+          return '<li>' + A.esc(t) + '</li>';
+        }).join('') +
+        '</ul></div>';
+    }
+    html += '</div>';
+    return html;
   }
 
   /* ---- SECAO 1: card de orcamento ---- */
