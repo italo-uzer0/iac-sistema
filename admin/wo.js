@@ -257,6 +257,16 @@
           else A.toast('Sub sem telefone cadastrado', 'err');
         });
       });
+      box.querySelectorAll('[data-fin]').forEach(function (btn) {
+        btn.addEventListener('click', function (ev) {
+          ev.preventDefault(); ev.stopPropagation();
+          var w = wos.filter(function (x) { return x.id === btn.getAttribute('data-fin'); })[0];
+          if (!w) return;
+          if (!A.confirmar('Finalizar o trabalho da WO de "' + (w.cliente || w.id) + '"? A WO some da tela principal e o job vai pra Done se os valores estiverem completos.')) return;
+          btn.disabled = true; btn.textContent = 'Finalizando…';
+          finalizarWO(w, function () { aplicar(); });
+        });
+      });
     }
 
     document.getElementById('wf-sub').addEventListener('change', function (ev) { fFiltro.sub = ev.target.value; aplicar(); });
@@ -278,6 +288,7 @@
       '<div class="row"><span class="vl" style="font-weight:800;color:var(--warm)">Repasse: ' + A.money(w.valor_repasse) + '</span>' +
       '<span class="grow"></span>' +
       (telDigitos(w.sub_id) ? '<button class="btn green sm" data-wa="' + A.esc(w.id) + '" style="min-height:30px;padding:3px 10px;font-size:12px">WhatsApp</button>' : '') +
+      (w.status !== 'Concluido' ? '<button class="btn sec sm" data-fin="' + A.esc(w.id) + '" style="min-height:30px;padding:3px 10px;font-size:12px">✔ Finalizar</button>' : '') +
       (w.valor_repasse
         ? (pagoOk ? '<span class="badge green">pago ao sub</span>'
           : Number(w.pago_ao_sub || 0) > 0 ? '<span class="badge orange">parcial ' + A.money(w.pago_ao_sub) + '</span>'
@@ -310,6 +321,33 @@
 
   function salvarWo(id, patch) {
     return A.sb.from('work_orders').update(patch).eq('id', id).then(function (r) { if (r.error) throw r.error; });
+  }
+
+  // Finaliza a WO: marca 'Concluido' e avalia se o job pode fechar (via core).
+  // Se travar por pendencia de valor, escreve nota no job e avisa o Italo.
+  function finalizarWO(wo, onDone) {
+    return salvarWo(wo.id, { status: 'Concluido' }).then(function () {
+      wo.status = 'Concluido';
+      return A.avaliarJobDone(wo.job_id);
+    }).then(function (res) {
+      if (res.done) {
+        A.toast('✔ Trabalho finalizado — job movido pra Done', 'ok');
+      } else if (res.pendencias && res.pendencias.length) {
+        if (wo.job_id) {
+          A.sb.from('job_notes').insert({
+            job_id: wo.job_id, data: A.hoje(), titulo: 'Finalizado com pendência',
+            texto: 'Trabalho finalizado (WO concluída), mas o job NÃO fechou por falta de: ' +
+              res.pendencias.join(', ') + '. Preencha o(s) valor(es) pra o job ir pra Done.'
+          }).then(function () { });
+        }
+        A.toast('WO finalizada — job em aberto: falta ' + res.pendencias.join(', '), 'err');
+      } else if (res.already) {
+        A.toast('✔ WO finalizada (job já estava em Done)', 'ok');
+      } else {
+        A.toast('✔ WO finalizada', 'ok');
+      }
+      if (onDone) onDone(res);
+    }).catch(A.toastErr);
   }
 
   function desenharDetalhe(root, wo, checklist, materiais, pagamentos, job) {
@@ -367,6 +405,13 @@
       '<button class="btn sm" id="w-copy-esq">' + A.icon('copy', 16) + ' Copiar esqueminha</button>' +
       (wo.job_id ? '<a class="btn sec sm" href="#/jobs/' + A.esc(wo.job_id) + '">Ver job</a>' : '') +
       '</div>' +
+      '<hr class="sep"/>' +
+      '<div class="row">' +
+      (wo.status === 'Concluido'
+        ? '<button class="btn sec block" id="w-finalizar" disabled>✔ Trabalho finalizado</button>'
+        : '<button class="btn green block" id="w-finalizar">✔ Finalizar trabalho</button>') +
+      '</div>' +
+      '<div class="muted" style="margin-top:6px">Finaliza a WO (some da tela principal) e, se o valor do repasse e o valor total do job estiverem preenchidos, move o job pra <b>Done</b> automaticamente. Se faltar valor, o job fica em aberto com aviso ate voce completar.</div>' +
       (waUrl(wo) ? '' : '<div class="muted" style="margin-top:6px">Cadastra o telefone do sub (tabela subs) pra habilitar o envio direto no WhatsApp.</div>') +
       '</div>' +
 
@@ -427,6 +472,16 @@
         var patch = {}; patch[field] = v;
         return salvarWo(wo.id, patch).then(function () {
           wo[field] = v;
+          // se a WO ja esta concluida e o valor do repasse acabou de ser preenchido,
+          // ou a WO acabou de virar 'Concluido', reavalia o fechamento do job na hora.
+          if ((field === 'valor_repasse' && String(wo.status || '') === 'Concluido') ||
+              (field === 'status' && v === 'Concluido')) {
+            A.avaliarJobDone(wo.job_id).then(function (res) {
+              if (res.done) A.toast('Job movido pra Done — pendência resolvida ✓', 'ok');
+              else if (res.pendencias && res.pendencias.length)
+                A.toast('WO concluída — falta ' + res.pendencias.join(', ') + ' pra fechar o job', 'err');
+            }).catch(function () { });
+          }
           if (field === 'data') return A.esc(A.fmtData(v));
           if (field === 'valor_repasse') return A.esc(A.money(v));
           if (field === 'sub_id') return A.esc(A.subNome(v));
@@ -589,6 +644,18 @@
         A.toast('Pendência removida', 'ok');
       }).catch(A.toastErr);
     });
+
+    // ---------- finalizar trabalho ----------
+    var finBtn = document.getElementById('w-finalizar');
+    if (finBtn && !finBtn.disabled) {
+      finBtn.addEventListener('click', function () {
+        if (!A.confirmar('Finalizar o trabalho da WO de "' + (wo.cliente || wo.id) + '"? A WO some da tela principal e o job vai pra Done se os valores estiverem completos.')) return;
+        finBtn.disabled = true; finBtn.textContent = 'Finalizando…';
+        finalizarWO(wo, function () {
+          renderDetalhe(document.getElementById('page'), wo.id);
+        });
+      });
+    }
 
     // ---------- copiar ----------
     document.getElementById('w-copy-link').addEventListener('click', function () {

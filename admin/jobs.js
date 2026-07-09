@@ -34,11 +34,26 @@
   var kFiltro = { busca: '', status: '' };
 
   function renderKanban(root) {
-    return A.sb.from('jobs').select('*').order('created_at', { ascending: false })
-      .then(function (r) {
-        if (r.error) throw r.error;
-        desenharKanban(root, r.data || []);
-      });
+    return Promise.all([
+      A.sb.from('jobs').select('*').order('created_at', { ascending: false }),
+      A.sb.from('work_orders').select('job_id,status,valor_repasse')
+    ]).then(function (rs) {
+      if (rs[0].error) throw rs[0].error;
+      if (rs[1].error) throw rs[1].error;
+      desenharKanban(root, rs[0].data || [], rs[1].data || []);
+    });
+  }
+
+  // resumo por job das WOs concluidas -> { temConcluida, repasseFalta }
+  function resumoWosPorJob(wos) {
+    var map = {};
+    (wos || []).forEach(function (w) {
+      if (String(w.status || '') !== 'Concluido') return;
+      var e = map[w.job_id] || (map[w.job_id] = { temConcluida: true, repasseFalta: false });
+      e.temConcluida = true;
+      if (w.valor_repasse === null || w.valor_repasse === undefined) e.repasseFalta = true;
+    });
+    return map;
   }
 
   // autoscroll das colunas quando arrasta perto da borda (desktop + mobile)
@@ -52,7 +67,8 @@
     else if (y > window.innerHeight - 110) window.scrollBy(0, S);
   }
 
-  function desenharKanban(root, jobs) {
+  function desenharKanban(root, jobs, wos) {
+    var pendMap = resumoWosPorJob(wos);
     var statuses = A.JOB_STATUSES.slice();
     jobs.forEach(function (j) {
       if (j.status && statuses.indexOf(j.status) < 0) statuses.push(j.status);
@@ -163,7 +179,7 @@
         return '<div class="kcol" data-st="' + A.esc(st) + '">' +
           '<div class="kcol-h">' + A.icon(window.IAC_ICONS.forStatus(st), 16) + ' ' + A.esc(st) +
           '<span class="count">' + list.length + '</span></div>' +
-          (list.length ? list.map(cardHtml).join('') :
+          (list.length ? list.map(function (j) { return cardHtml(j, A.jobPendenteValor(j, pendMap[j.id])); }).join('') :
             '<div class="empty" style="padding:18px 10px"><span class="muted">vazio</span></div>') +
           '</div>';
       }).join('') || A.empty('Nenhum job encontrado', 'Ajusta a busca ou o filtro.', 'search');
@@ -234,10 +250,11 @@
     aplicar();
   }
 
-  function cardHtml(j) {
+  function cardHtml(j, pend) {
     var ctNome = j.contractor ? ((A.cache.ctById[j.contractor] || {}).nome || j.contractor) : null;
     return '<div class="kcard" data-id="' + A.esc(j.id) + '">' +
       '<div class="nm">' + A.esc(j.cliente || '(sem nome)') + '</div>' +
+      (pend ? '<div style="margin:2px 0"><span class="badge yellow" title="a work order ja foi finalizada mas falta preencher valor pra o job ir pra Done">⚠️ Falta valor — WO finalizada</span></div>' : '') +
       (ctNome ? '<div style="margin:2px 0"><span class="badge warm" title="job de contractor — quem paga e o contractor">💼 ' + A.esc(ctNome) + '</span></div>' : '') +
       '<div class="sv">' + A.icon(window.IAC_ICONS.forService(j.tipo_servico), 15) + ' ' +
       A.esc(j.tipo_servico || 'servico?') + (j.cidade_st ? ' · ' + A.esc(j.cidade_st) : '') + '</div>' +
@@ -399,6 +416,18 @@
         var patch = {}; patch[field] = v;
         return salvarJob(job.id, patch).then(function () {
           job[field] = v;
+          // se o valor total acabou de ser preenchido e o job tem WO concluida,
+          // reavalia o fechamento automatico pra Done na hora.
+          if (field === 'valor_total' && v !== null && v !== undefined) {
+            A.avaliarJobDone(job.id).then(function (res) {
+              if (res.done) {
+                job.status = 'Done';
+                var b = document.querySelector('.h-page .badge.warm');
+                if (b) b.textContent = 'Done';
+                A.toast('Job movido pra Done — pendência resolvida ✓', 'ok');
+              }
+            }).catch(function () { });
+          }
           if (field === 'data_projeto') return A.esc(A.fmtData(v));
           if (field === 'valor_total' || field === 'pago') return A.esc(A.money(v));
           if (field === 'sub') return A.esc(A.subNome(v));

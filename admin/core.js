@@ -306,6 +306,52 @@
   }
   function subNome(id) { return (cache.subById[id] && cache.subById[id].nome) || id || '—'; }
 
+  // -------------------------------------------------------------- finalizacao WO -> job Done
+  // Avalia se o job pode fechar (mover pra 'Done'). Regra: so fecha se o job tiver
+  // pelo menos UMA work order 'Concluido' E todos os valores necessarios preenchidos
+  // (jobs.valor_total != null E valor_repasse != null de cada WO concluida).
+  // Se faltar valor, NAO move e devolve as pendencias (pra mostrar badge/aviso).
+  // Move sozinho (e escreve nota no job) so quando tudo esta completo.
+  // Usado por: botao "Finalizar" (wo.js), edicao inline de valor_repasse (wo.js) e
+  // valor_total (jobs.js), e pela badge de pendencia do kanban.
+  function avaliarJobDone(jobId) {
+    var vazio = { done: false, temWoConcluida: false, pendencias: [] };
+    if (!jobId) return Promise.resolve(vazio);
+    return Promise.all([
+      sb.from('jobs').select('id,cliente,valor_total,status').eq('id', jobId).maybeSingle(),
+      sb.from('work_orders').select('id,valor_repasse,status').eq('job_id', jobId)
+    ]).then(function (rs) {
+      if (rs[0].error) throw rs[0].error;
+      if (rs[1].error) throw rs[1].error;
+      var job = rs[0].data;
+      if (!job) return vazio;
+      var concluidas = (rs[1].data || []).filter(function (w) { return String(w.status || '') === 'Concluido'; });
+      if (!concluidas.length) return { done: false, temWoConcluida: false, pendencias: [], job: job };
+      var pendencias = [];
+      if (job.valor_total === null || job.valor_total === undefined) pendencias.push('valor total do job');
+      var faltaRepasse = concluidas.some(function (w) { return w.valor_repasse === null || w.valor_repasse === undefined; });
+      if (faltaRepasse) pendencias.push('valor do repasse do sub');
+      if (pendencias.length) return { done: false, temWoConcluida: true, pendencias: pendencias, job: job };
+      if (String(job.status || '') === 'Done') return { done: false, already: true, temWoConcluida: true, pendencias: [], job: job };
+      return sb.from('jobs').update({ status: 'Done' }).eq('id', jobId).then(function (r) {
+        if (r.error) throw r.error;
+        return sb.from('job_notes').insert({
+          job_id: jobId, data: hoje(), titulo: 'Concluído',
+          texto: 'Trabalho finalizado — work order concluída e valores preenchidos. Job movido automaticamente pra Done.'
+        }).then(function () {
+          return { done: true, temWoConcluida: true, pendencias: [], job: job };
+        });
+      });
+    });
+  }
+  // helper puro (sincrono) pra badge do kanban: recebe o job e um resumo das WOs
+  // concluidas dele -> true se a WO ja foi finalizada mas falta valor pra fechar o job.
+  function jobPendenteValor(job, resumoWo) {
+    if (!resumoWo || !resumoWo.temConcluida) return false;
+    if (String(job.status || '') === 'Done') return false;
+    return resumoWo.repasseFalta || job.valor_total === null || job.valor_total === undefined;
+  }
+
   // -------------------------------------------------------------- router / shell
   var pages = {}; // nome -> { title, render(root, args) }
   function route(hash) {
@@ -449,6 +495,7 @@
     pages: pages,
     cache: cache,
     subNome: subNome,
+    avaliarJobDone: avaliarJobDone, jobPendenteValor: jobPendenteValor,
     esc: esc, money: money, num: num, hoje: hoje,
     fmtData: fmtData, fmtDataDia: fmtDataDia, parseISO: parseISO, weekRange: weekRange,
     debounce: debounce, token32: token32, slug: slug,
