@@ -45,7 +45,8 @@ body {
   font-size: 15px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
-  padding-bottom: env(safe-area-inset-bottom);
+  /* espaco pro rodape fixo de contato (.contact-bar) — nao cobrir conteudo */
+  padding-bottom: calc(92px + env(safe-area-inset-bottom));
 }
 
 /* ---------- HEADER ---------- */
@@ -259,6 +260,25 @@ body {
 .btn:active { transform: scale(.98); }
 .btn[disabled] { opacity: .85; cursor: default; }
 
+/* ---------- RODAPE FIXO DE CONTATO (ligar / WhatsApp pro Italo) ---------- */
+.contact-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  display: flex; gap: 10px;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  background: var(--warm-bg);
+  box-shadow: 0 -4px 16px rgba(61, 43, 31, .28);
+}
+.contact-bar .cb-btn {
+  flex: 1; min-height: 52px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  border-radius: 14px; text-decoration: none;
+  font-weight: 900; font-size: 15px; letter-spacing: .02em; color: #fff;
+  transition: transform .08s, opacity .15s;
+}
+.contact-bar .cb-btn:active { transform: scale(.97); opacity: .9; }
+.contact-bar .cb-btn.call { background: var(--orange); }
+.contact-bar .cb-btn.wa { background: #25D366; }
+
 /* ---------- EMPTY / LINK INVALIDO ---------- */
 .empty { text-align: center; color: var(--ink-faint); padding: 56px 24px; font-weight: 600; }
 .empty .iac-icon { width: 48px; height: 48px; color: var(--line-2); }
@@ -274,7 +294,8 @@ body {
 
 /* ---------- TOAST ---------- */
 .toast {
-  position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom));
+  /* acima do rodape fixo de contato */
+  position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom));
   transform: translateX(-50%) translateY(14px);
   background: var(--warm-bg); color: #fff; font-weight: 700; font-size: 14px;
   padding: 12px 18px; border-radius: 999px; display: flex; align-items: center; gap: 8px;
@@ -845,7 +866,8 @@ window.IAC_CFG = {
       received: 'Recebido', remaining: 'Falta', paidFull: 'Pago ✔',
       payHistory: 'Pagamentos recebidos', currentStep: 'Você está aqui',
       pendTitle: 'ATENÇÃO — Trabalho com pendência', pendReturn: 'Retorno',
-      completeStep: 'Concluir etapa de hoje'
+      completeStep: 'Concluir etapa de hoje',
+      callBtn: 'LIGAR PRO ITALO', waBtn: 'WHATSAPP'
     },
     en: {
       yourJob: 'Your job', scope: 'Scope of work', checklist: 'Checklist',
@@ -862,7 +884,8 @@ window.IAC_CFG = {
       received: 'Received', remaining: 'Remaining', paidFull: 'Paid ✔',
       payHistory: 'Payments received', currentStep: 'You are here',
       pendTitle: 'ATTENTION — Job has pending work', pendReturn: 'Return visit',
-      completeStep: "Finish today's step"
+      completeStep: "Finish today's step",
+      callBtn: 'CALL ITALO', waBtn: 'WHATSAPP'
     },
     es: {
       yourJob: 'Tu trabajo', scope: 'Alcance del trabajo', checklist: 'Lista de tareas',
@@ -879,7 +902,8 @@ window.IAC_CFG = {
       received: 'Recibido', remaining: 'Falta', paidFull: 'Pagado ✔',
       payHistory: 'Pagos recibidos', currentStep: 'Estás aquí',
       pendTitle: 'ATENCIÓN — Trabajo con pendiente', pendReturn: 'Regreso',
-      completeStep: 'Terminar la etapa de hoy'
+      completeStep: 'Terminar la etapa de hoy',
+      callBtn: 'LLAMAR A ITALO', waBtn: 'WHATSAPP'
     }
   };
 
@@ -893,8 +917,24 @@ window.IAC_CFG = {
   // estado
   var W = null, TOKEN = null, T = null, lang = 'pt';
 
+  // RODAPE FIXO de contato — ligar / WhatsApp pro Italo (sub-safe, sem dado
+  // financeiro). Recriado a cada troca de idioma pra traduzir os labels.
+  function renderContactBar(t) {
+    var bar = document.getElementById('contactBar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'contactBar';
+      bar.className = 'contact-bar';
+      document.body.appendChild(bar);
+    }
+    bar.innerHTML =
+      '<a class="cb-btn call" href="tel:+18482340283">📞 ' + esc(t.callBtn) + '</a>' +
+      '<a class="cb-btn wa" href="https://wa.me/18482340283" target="_blank" rel="noopener">💬 ' + esc(t.waBtn) + '</a>';
+  }
+
   async function init() {
     TOKEN = getToken();
+    renderContactBar(I18N.pt);
     if (!TOKEN) return renderNotFound('pt');
 
     view.innerHTML = '<div class="loading">' + esc(I18N.pt.loading) + '</div>';
@@ -907,6 +947,7 @@ window.IAC_CFG = {
     T = I18N[lang];
     document.documentElement.lang = lang === 'en' ? 'en' : (lang === 'es' ? 'es' : 'pt-BR');
     document.getElementById('brandSub').textContent = T.yourJob;
+    renderContactBar(T);
     render();
   }
 
