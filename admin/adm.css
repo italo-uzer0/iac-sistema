@@ -495,3 +495,43 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
 
 .dia-card-sm { padding: 12px; }
 .dia-conferi { margin-top: 8px; }
+
+/* ---- 📆 SEMANA (proximos 7 dias, denso) ---- */
+.dia-semana {
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: var(--shadow); overflow: hidden; margin-bottom: 8px;
+}
+.dia-sem-dia {
+  display: flex; align-items: center; gap: 7px;
+  background: var(--light); color: var(--warm);
+  font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  padding: 6px 12px; border-top: 1px solid var(--line);
+}
+.dia-sem-dia:first-child { border-top: none; }
+.dia-sem-dia.hoje { background: var(--warm); color: var(--light); }
+.dia-sem-n {
+  background: var(--orange); color: #fff; border-radius: 999px;
+  font-size: 10.5px; font-weight: 800; padding: 1px 7px; line-height: 1.4;
+}
+.dia-sem-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-top: 1px solid var(--line);
+  font-size: 13px; cursor: pointer; min-height: 40px;
+}
+.dia-sem-row:active { background: var(--light); }
+.dia-sem-row.fixa { cursor: default; }
+.dia-sem-row.livre {
+  color: var(--muted); font-style: italic; cursor: default;
+  background: #faf8f5; min-height: 32px; padding: 5px 12px; font-size: 12px;
+}
+.dia-sem-row.livre:active { background: #faf8f5; }
+.dia-sem-hora {
+  flex: none; width: 58px; font-weight: 700; color: var(--warm);
+  font-size: 11.5px; white-space: nowrap;
+}
+.dia-sem-tx {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--ink);
+}
+.dia-sem-tx b { color: var(--warm); }
+.dia-sem-row .badge { flex: none; }

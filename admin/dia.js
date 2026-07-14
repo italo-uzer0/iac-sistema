@@ -185,7 +185,7 @@
   }
 
   /* ================================================ estado das secoes ====== */
-  var aberto = { roteiro: true, chk: true, orc: true, rua: true, pagar: true, receber: true, followup: true };
+  var aberto = { roteiro: true, semana: true, chk: true, orc: true, rua: true, pagar: true, receber: true, followup: true };
   var verTodosEstimates = false;
   var conferido = false; // "conferi tudo" na secao A pagar — so visual
 
@@ -201,7 +201,7 @@
         A.sb.from('work_orders').select('id,job_id,sub_id,cliente,data,hora,status,endereco,cidade_st,servico,valor_repasse,pendencia,token,obs').order('data', { ascending: true, nullsFirst: false }),
         A.sb.from('caixa').select('id,data,tipo,cliente,job_id,descricao,valor,status,pago_para').order('valor', { ascending: false }),
         A.sb.from('dia_tarefas').select('*').order('ordem', { ascending: true }).order('created_at', { ascending: true }),
-        A.sb.from('agenda').select('*').eq('data', A.hoje()).order('hora_inicio', { ascending: true, nullsFirst: false })
+        A.sb.from('agenda').select('*').gte('data', A.hoje()).lte('data', isoAddDias(6)).order('data', { ascending: true }).order('hora_inicio', { ascending: true, nullsFirst: false })
       ]).then(function (rs) {
         rs.forEach(function (r) { if (r.error) throw r.error; });
         DADOS.jobs = rs[0].data || [];
@@ -291,7 +291,10 @@
       '</div>';
 
     // === ROTEIRO DE HOJE (timeline no topo) ===
-    var paradas = montarParadas(jobs, wos, DADOS.agenda, hojeISO);
+    var agendaHoje = DADOS.agenda.filter(function (a) {
+      return String(a.data || '').slice(0, 10) === hojeISO;
+    });
+    var paradas = montarParadas(jobs, wos, agendaHoje, hojeISO);
     html += secaoHead('roteiro', '🗓️ Roteiro de hoje', paradas.length, 'sua rota do dia');
     html += '<div class="dia-sec" data-sec="roteiro"' + (aberto.roteiro ? '' : ' style="display:none"') + '>';
     html += '<div class="dia-addtask">' +
@@ -305,6 +308,15 @@
     } else {
       html += paradas.map(cardParada).join('');
     }
+    html += '</div>';
+
+    // === 📆 SEMANA (proximos 7 dias) ===
+    var semana = montarSemana(jobs, wos, DADOS.agenda);
+    var totalSem = semana.reduce(function (s, d) { return s + d.itens.length; }, 0);
+    html += secaoHead('semana', '📆 Semana', totalSem,
+      totalSem + ' compromisso' + (totalSem === 1 ? '' : 's') + ' nos proximos 7 dias');
+    html += '<div class="dia-sec" data-sec="semana"' + (aberto.semana ? '' : ' style="display:none"') + '>';
+    html += '<div class="dia-semana">' + semana.map(blocoSemanaDia).join('') + '</div>';
     html += '</div>';
 
     // === SECAO 0: CHECKLIST DO DIA ===
@@ -417,6 +429,14 @@
       btn.addEventListener('click', function (ev) {
         ev.stopPropagation();
         location.hash = '#/jobs/' + btn.getAttribute('data-abrir-job');
+      });
+    });
+
+    // abrir WO (linhas da Semana)
+    root.querySelectorAll('[data-abrir-wo]').forEach(function (el) {
+      el.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        location.hash = '#/wo/' + el.getAttribute('data-abrir-wo');
       });
     });
 
@@ -853,6 +873,88 @@
     }
     html += '</div>';
     return html;
+  }
+
+  /* ================================================ 📆 SEMANA ============== */
+  // ISO (YYYY-MM-DD) de hoje + n dias
+  function isoAddDias(n) {
+    var d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  var DIAS3 = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+  function labelSemana(iso, idx) {
+    if (idx === 0) return 'Hoje';
+    if (idx === 1) return 'Amanha';
+    var d = A.parseISO(iso);
+    if (!d) return iso;
+    return DIAS3[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+  function mesmoDia(v, iso) { return String(v || '').slice(0, 10) === iso; }
+  // agrupa WOs + visitas + agenda dos proximos 7 dias
+  function montarSemana(jobs, wos, agenda) {
+    var dias = [];
+    for (var i = 0; i < 7; i++) {
+      (function (i) {
+        var iso = isoAddDias(i);
+        var itens = [];
+        (wos || []).forEach(function (w) {
+          if (!mesmoDia(w.data, iso)) return;
+          itens.push({ kind: 'wo', hora: w.hora, obj: w });
+        });
+        (jobs || []).forEach(function (j) {
+          if (!mesmoDia(j.data_visita, iso)) return;
+          if (!ehOrcamento(j)) return; // visita ainda pendente
+          itens.push({ kind: 'visita', hora: null, obj: j });
+        });
+        (agenda || []).forEach(function (a) {
+          if (!mesmoDia(a.data, iso)) return;
+          itens.push({ kind: 'agenda', hora: a.hora_inicio, obj: a });
+        });
+        itens.sort(function (a, b) { return horaMin(a.hora) - horaMin(b.hora); });
+        dias.push({ iso: iso, label: labelSemana(iso, i), hoje: i === 0, itens: itens });
+      })(i);
+    }
+    return dias;
+  }
+  function badgeWoSt(st) {
+    st = String(st || '');
+    var cls = st === 'Concluido' ? 'green'
+      : st === 'Em andamento' ? 'orange'
+      : st === 'Enviado ao sub' ? 'warm' : 'red';
+    return '<span class="badge ' + cls + '">' + A.esc(st || '—') + '</span>';
+  }
+  function linhaSemana(it) {
+    var hora = it.hora ? horaLabel(it.hora) : '—';
+    if (it.kind === 'wo') {
+      var w = it.obj;
+      return '<div class="dia-sem-row" data-abrir-wo="' + A.esc(w.id) + '">' +
+        '<span class="dia-sem-hora">' + A.esc(hora) + '</span>' +
+        '<span class="dia-sem-tx"><b>' + A.esc(A.subNome(w.sub_id)) + '</b> · ' + A.esc(w.cliente || '—') +
+        (w.servico ? ' <span class="muted">· ' + A.esc(w.servico) + '</span>' : '') + '</span>' +
+        badgeWoSt(w.status) + '</div>';
+    }
+    if (it.kind === 'visita') {
+      var j = it.obj;
+      return '<div class="dia-sem-row" data-abrir-job="' + A.esc(j.id) + '">' +
+        '<span class="dia-sem-hora">—</span>' +
+        '<span class="dia-sem-tx"><b>' + A.esc(j.cliente || '(sem nome)') + '</b>' +
+        (j.tipo_servico ? ' <span class="muted">· ' + A.esc(j.tipo_servico) + '</span>' : '') +
+        (j.cidade_st ? ' <span class="muted">· ' + A.esc(j.cidade_st) + '</span>' : '') + '</span>' +
+        '<span class="badge warm">visita</span></div>';
+    }
+    var a = it.obj;
+    var attr = a.job_id ? ' data-abrir-job="' + A.esc(a.job_id) + '"' : '';
+    return '<div class="dia-sem-row' + (a.job_id ? '' : ' fixa') + '"' + attr + '>' +
+      '<span class="dia-sem-hora">' + A.esc(hora) + '</span>' +
+      '<span class="dia-sem-tx"><b>' + A.esc(a.titulo || '(sem titulo)') + '</b>' +
+      (a.endereco ? ' <span class="muted">· ' + A.esc(a.endereco) + '</span>' : '') + '</span>' +
+      '<span class="badge">agenda</span></div>';
+  }
+  function blocoSemanaDia(d) {
+    var head = '<div class="dia-sem-dia' + (d.hoje ? ' hoje' : '') + '">' + A.esc(d.label) +
+      (d.itens.length ? '<span class="dia-sem-n">' + d.itens.length + '</span>' : '') + '</div>';
+    if (!d.itens.length) return head + '<div class="dia-sem-row livre">livre</div>';
+    return head + d.itens.map(linhaSemana).join('');
   }
 
   /* ---- SECAO 1: card de orcamento ---- */
