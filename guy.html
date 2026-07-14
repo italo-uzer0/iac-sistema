@@ -767,8 +767,10 @@ window.IAC_CFG = {
   }
 
   function linkify(s) {
-    return esc(s).replace(/(https?://[^s<]+)/g, function (u) {
-      var label = /maps.google|goo.gl/maps/.test(u) ? '🗺️ ABRIR NO MAPA' : u.replace(/^https?:///, '').slice(0, 30) + '…';
+    return esc(s).replace(/(https?:\/\/[^\s<]+)/g, function (u) {
+      var label = /maps\.google|goo\.gl\/maps/.test(u)
+        ? '🗺️ ABRIR NO MAPA'
+        : u.replace(/^https?:\/\//, '').slice(0, 30) + '…';
       return '<a href="' + u + '" target="_blank" rel="noopener" style="font-weight:700;text-decoration:underline">' + label + '</a>';
     });
   }
