@@ -107,6 +107,38 @@
     return Math.round((h - d) / 86400000);
   }
 
+  /* ================================================ FOLLOW-UP / CRM ======== */
+  // Cadencia: estimate -> 1o follow-up +3d, 2o +7d, 3o +14d; depois sugerir Perdidos.
+  // Vencido = followup_em <= hoje. Sem followup_em (job novo sem backfill):
+  // cai na cadencia padrao (created_at + 3 dias).
+  function followupVencido(j) {
+    if (j.followup_em) return ehHojeOuPassado(j.followup_em);
+    var d = diasDesde(j.created_at);
+    return d !== null && d >= 3;
+  }
+  // SMS pronto em INGLES por nivel (0/1/2+) — marca IAC Home Improvement, nunca WhatsApp
+  function smsFollowup(j) {
+    var nome = String(j.cliente || '').trim().split(/\s+/)[0] || 'there';
+    var serv = String(j.tipo_servico || '').trim() || 'project';
+    var n = Number(j.followup_nivel || 0);
+    if (n <= 0) {
+      return "Hi " + nome + ", it's Italo from IAC Home Improvement — just checking if you had a chance to review the estimate for your " + serv + ". Happy to answer any questions!";
+    }
+    if (n === 1) {
+      return "Hi " + nome + ", it's Italo from IAC Home Improvement — following up on the estimate for your " + serv + ". Any questions, or would you like to adjust the scope? I'm happy to work with you on it!";
+    }
+    return "Hi " + nome + ", it's Italo from IAC Home Improvement — one last friendly check-in about the estimate for your " + serv + ". It's valid for 30 days, so if you'd like to lock in the price just let me know. Thank you!";
+  }
+  function copiarTexto(txt, msgOk) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(function () {
+        A.toast(msgOk || 'Copiado ✓', 'ok');
+      }).catch(function () { A.copiar(txt, msgOk || 'Copiado ✓'); });
+    } else {
+      A.copiar(txt, msgOk || 'Copiado ✓');
+    }
+  }
+
   /* ================================================ GUIA DE VISITA ========= */
   // checklist guia por tipo de servico (so leitura, na visita)
   function guiaVisita(tipo) {
@@ -197,7 +229,7 @@
   A.pages.dia = {
     render: function (root) {
       return Promise.all([
-        A.sb.from('jobs').select('id,cliente,telefone,endereco,cidade_st,tipo_servico,status,data_visita,created_at').order('created_at', { ascending: false }),
+        A.sb.from('jobs').select('id,cliente,telefone,endereco,cidade_st,tipo_servico,status,data_visita,created_at,valor_total,followup_em,followup_nivel').order('created_at', { ascending: false }),
         A.sb.from('work_orders').select('id,job_id,sub_id,cliente,data,hora,status,endereco,cidade_st,servico,valor_repasse,pendencia,token,obs').order('data', { ascending: true, nullsFirst: false }),
         A.sb.from('caixa').select('id,data,tipo,cliente,job_id,descricao,valor,status,pago_para').order('valor', { ascending: false }),
         A.sb.from('dia_tarefas').select('*').order('ordem', { ascending: true }).order('created_at', { ascending: true }),
@@ -258,6 +290,11 @@
       var ca = a.created_at || '', cb = b.created_at || '';
       return ca < cb ? -1 : ca > cb ? 1 : 0; // mais antigos primeiro
     });
+    // CRM: SO os follow-ups VENCIDOS (followup_em <= hoje), dinheiro maior primeiro
+    var fuVencidos = estimates.filter(followupVencido).sort(function (a, b) {
+      return Number(b.valor_total || 0) - Number(a.valor_total || 0);
+    });
+    var fuParado = fuVencidos.reduce(function (s, j) { return s + Number(j.valor_total || 0); }, 0);
 
     /* --- 0) CHECKLIST DO DIA --- */
     // (a) enviar proposal: Visita Feita
@@ -288,6 +325,11 @@
       '<div class="dia-hi">☀️ ' + A.esc(saud) + ', Italo</div>' +
       '<div class="dia-date">' + A.esc(A.fmtDataDia(hojeISO)) + '</div>' +
       '<div class="dia-sum">' + A.esc(resumo) + '</div>' +
+      (fuVencidos.length
+        ? '<div class="dia-sum" style="margin-top:4px;font-weight:700">🔥 ' + fuVencidos.length +
+          ' follow-up' + (fuVencidos.length === 1 ? '' : 's') + ' vencido' + (fuVencidos.length === 1 ? '' : 's') +
+          ' · ' + A.esc(A.money(fuParado)) + ' parados</div>'
+        : '') +
       '</div>';
 
     // === ROTEIRO DE HOJE (timeline no topo) ===
@@ -378,17 +420,18 @@
     }
     html += '</div>';
 
-    // === SECAO 5: FOLLOW-UP ===
-    var estVis = verTodosEstimates ? estimates : estimates.slice(0, 12);
-    html += secaoHead('followup', '🔔 Follow-up (estimates)', estimates.length, 'mais antigos primeiro');
+    // === SECAO 5: FOLLOW-UP (CRM — so vencidos, maior valor primeiro) ===
+    var estVis = verTodosEstimates ? fuVencidos : fuVencidos.slice(0, 12);
+    html += secaoHead('followup', '🔔 Follow-up (vencidos)', fuVencidos.length,
+      A.money(fuParado) + ' parados · maior valor primeiro');
     html += '<div class="dia-sec" data-sec="followup"' + (aberto.followup ? '' : ' style="display:none"') + '>';
-    if (!estimates.length) {
-      html += A.empty('Sem estimates parados', 'Jobs em "Estimate Enviado" aparecem aqui.', 'estimate');
+    if (!fuVencidos.length) {
+      html += A.empty('Nenhum follow-up vencido 🎉', 'Estimates com follow-up marcado pra hoje ou atrasado aparecem aqui (cadencia 3/7/14 dias).', 'estimate');
     } else {
-      html += '<div class="dia-note">Dinheiro na mesa — cada follow-up vira job.</div>';
+      html += '<div class="dia-note">Dinheiro na mesa — liga ou manda o SMS pronto. Cada follow-up vira job.</div>';
       html += estVis.map(cardEstimate).join('');
-      if (!verTodosEstimates && estimates.length > 12) {
-        html += '<button class="btn sec sm block dia-vertodos" style="margin-top:8px">ver todos (' + estimates.length + ')</button>';
+      if (!verTodosEstimates && fuVencidos.length > 12) {
+        html += '<button class="btn sec sm block dia-vertodos" style="margin-top:8px">ver todos (' + fuVencidos.length + ')</button>';
       }
     }
     html += '</div>';
@@ -575,6 +618,73 @@
           A.toast('Anotado: contatei hoje ✓', 'ok');
           btn.textContent = '✓ contatei hoje';
           btn.classList.remove('sec'); btn.classList.add('green');
+        }).catch(function (e) { btn.disabled = false; A.toastErr(e); });
+      });
+    });
+
+    /* ---------- SECAO 5 (CRM): copiar SMS de follow-up ---------- */
+    root.querySelectorAll('[data-fu-sms]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var j = DADOS.jobs.filter(function (x) { return x.id === btn.getAttribute('data-fu-sms'); })[0];
+        if (!j) return;
+        copiarTexto(smsFollowup(j), 'SMS copiado — cola no Messages 📱');
+      });
+    });
+
+    /* ---------- SECAO 5 (CRM): ✔ contatei (nota + agenda proximo nivel) ---------- */
+    root.querySelectorAll('[data-fu-contatei]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var jobId = btn.getAttribute('data-fu-contatei');
+        var j = DADOS.jobs.filter(function (x) { return x.id === jobId; })[0];
+        if (!j) return;
+        var novoNivel = Number(j.followup_nivel || 0) + 1;
+        var proxDias = novoNivel === 1 ? 7 : 14; // cadencia 3/7/14
+        var prox = isoAddDias(proxDias);
+        btn.disabled = true;
+        Promise.all([
+          A.sb.from('job_notes').insert({
+            job_id: jobId, data: A.hoje(), titulo: 'Follow-up #' + novoNivel,
+            texto: 'Follow-up #' + novoNivel + ' feito (ligacao/SMS). Proximo agendado pra ' + A.fmtData(prox) + '.'
+          }),
+          A.sb.from('jobs').update({ followup_nivel: novoNivel, followup_em: prox }).eq('id', jobId)
+        ]).then(function (rs) {
+          btn.disabled = false;
+          for (var i = 0; i < rs.length; i++) { if (rs[i].error) return A.toastErr(rs[i].error); }
+          j.followup_nivel = novoNivel; j.followup_em = prox;
+          if (novoNivel >= 3) {
+            A.toast('Anotado ✓ Ja foram ' + novoNivel + ' follow-ups sem resposta — considera mover pro Perdidos', 'err');
+          } else {
+            A.toast('Anotado ✓ Proximo follow-up em ' + proxDias + ' dias (' + A.fmtData(prox) + ')', 'ok');
+          }
+          rerender();
+        }).catch(function (e) { btn.disabled = false; A.toastErr(e); });
+      });
+    });
+
+    /* ---------- SECAO 5 (CRM): ✔ FECHOU (Schedule + data do projeto) ---------- */
+    root.querySelectorAll('[data-fu-fechou]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var jobId = btn.getAttribute('data-fu-fechou');
+        var j = DADOS.jobs.filter(function (x) { return x.id === jobId; })[0];
+        if (!j) return;
+        var dt = window.prompt('FECHOU! 🎉 Data do projeto (AAAA-MM-DD) — deixa vazio se ainda vai marcar:', '');
+        if (dt === null) return; // cancelou
+        dt = dt.trim();
+        var patch = { status: ST.SCHEDULE };
+        if (dt) {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dt)) return A.toast('Data invalida — usa AAAA-MM-DD (ex: ' + A.hoje() + ')', 'err');
+          patch.data_projeto = dt;
+        }
+        btn.disabled = true;
+        A.sb.from('jobs').update(patch).eq('id', jobId).then(function (r) {
+          btn.disabled = false;
+          if (r.error) return A.toastErr(r.error);
+          j.status = ST.SCHEDULE;
+          A.toast('FECHOU! 🎉 ' + (j.cliente || 'Job') + ' movido pra Schedule' + (dt ? ' — projeto ' + A.fmtData(dt) : ''), 'ok');
+          rerender();
         }).catch(function (e) { btn.disabled = false; A.toastErr(e); });
       });
     });
@@ -1088,23 +1198,30 @@
       '</div>';
   }
 
-  /* ---- SECAO 5: card follow-up (estimate) ---- */
+  /* ---- SECAO 5: card follow-up (CRM — so vencidos) ---- */
   function cardEstimate(j) {
     var dias = diasDesde(j.created_at);
+    var nivel = Number(j.followup_nivel || 0);
     return '<div class="card dia-card dia-card-sm">' +
       '<div class="dia-card-top">' +
-      '<div class="dia-nm" style="font-size:14.5px">' + A.esc(j.cliente || '(sem nome)') + '</div>' +
-      (dias !== null ? '<span class="muted" style="font-size:12px;white-space:nowrap">ha ' + dias + 'd</span>' : '') +
+      '<div class="dia-nm" style="font-size:14.5px">' + A.esc(j.cliente || '(sem nome)') +
+      (j.valor_total !== null && j.valor_total !== undefined
+        ? ' <b style="color:var(--green)">' + A.esc(A.money(j.valor_total)) + '</b>' : '') + '</div>' +
+      (dias !== null ? '<span class="muted" style="font-size:12px;white-space:nowrap">estimate ha ' + dias + 'd</span>' : '') +
       '</div>' +
       '<div class="dia-sv" style="margin:2px 0">' + A.icon(window.IAC_ICONS.forService(j.tipo_servico), 14) + ' ' +
       A.esc(j.tipo_servico || 'servico?') + (j.cidade_st ? ' · ' + A.esc(j.cidade_st) : '') +
-      (j.created_at ? ' · enviado ' + A.esc(A.fmtData(j.created_at)) : '') + '</div>' +
+      ' · <span class="muted">follow-up #' + (nivel + 1) + '</span>' +
+      (nivel >= 3 ? ' <span class="badge red">3+ sem resposta</span>' : '') + '</div>' +
       '<div class="dia-actions">' +
       btnLigar(j.telefone) +
-      '<button class="btn sec sm dia-act" data-abrir-job="' + A.esc(j.id) + '">' + A.icon('open', 15) + ' Abrir job</button>' +
-      '<button class="btn green sm dia-act" data-job-status="' + A.esc(j.id) + '" data-status-novo="' + ST.SCHEDULE + '">✔ Fechou</button>' +
+      '<button class="btn sec sm dia-act" data-fu-sms="' + A.esc(j.id) + '">📋 copiar SMS</button>' +
+      '<button class="btn sec sm dia-act" data-abrir-job="' + A.esc(j.id) + '">' + A.icon('open', 15) + ' Abrir</button>' +
+      '</div>' +
+      '<div class="dia-actions dia-statusrow">' +
+      '<button class="btn sec sm dia-act" data-fu-contatei="' + A.esc(j.id) + '">✔ contatei</button>' +
+      '<button class="btn green sm dia-act" data-fu-fechou="' + A.esc(j.id) + '">✔ FECHOU</button>' +
       '<button class="btn danger sm dia-act" data-job-status="' + A.esc(j.id) + '" data-status-novo="' + ST.PERDIDO + '">✖ Perdido</button>' +
-      '<button class="btn sec sm dia-act" data-nota-followup="' + A.esc(j.id) + '">📞 liguei hoje</button>' +
       '</div>' +
       '</div>';
   }

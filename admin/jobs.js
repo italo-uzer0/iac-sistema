@@ -23,6 +23,23 @@
     return o ? o.label : v;
   }
 
+  // ---- review pos-Done (regra 23): grava nota com o SMS de review pronto ----
+  function smsReview(cliente, servico) {
+    var nome = String(cliente || '').trim().split(/\s+/)[0] || 'there';
+    var serv = String(servico || '').trim() || 'project';
+    return "Hi " + nome + ", it's Italo from IAC Home Improvement — thank you for trusting us with your " + serv + "! If you're happy with the work, a quick Google review really helps our local family business. Takes 30 seconds: [REVIEW_LINK]";
+  }
+  function notaReviewDone(jobId, cliente, servico) {
+    if (!jobId) return;
+    A.sb.from('job_notes').insert({
+      job_id: jobId, data: A.hoje(), titulo: 'SMS de review (enviar pro cliente)',
+      texto: smsReview(cliente, servico)
+    }).then(function (r) {
+      if (r.error) return A.toastErr(r.error);
+      A.toast('SMS de review pronto nas notas 📋', 'ok');
+    }).catch(function () { });
+  }
+
   A.pages.jobs = {
     render: function (root, args) {
       if (args && args[0]) return renderDetalhe(root, args[0]);
@@ -95,6 +112,7 @@
         if (r.error) return A.toastErr(r.error);
         job.status = novo;
         A.toast('Movido pra ' + novo, 'ok');
+        if (novo === 'Done') notaReviewDone(job.id, job.cliente, job.tipo_servico);
         aplicar();
       });
     }
@@ -415,7 +433,12 @@
       spec.onSave = function (v) {
         var patch = {}; patch[field] = v;
         return salvarJob(job.id, patch).then(function () {
+          var statusAntes = job.status;
           job[field] = v;
+          // status virou Done na mao -> SMS de review pronto nas notas
+          if (field === 'status' && v === 'Done' && statusAntes !== 'Done') {
+            notaReviewDone(job.id, job.cliente, job.tipo_servico);
+          }
           // se o valor total acabou de ser preenchido e o job tem WO concluida,
           // reavalia o fechamento automatico pra Done na hora.
           if (field === 'valor_total' && v !== null && v !== undefined) {
@@ -425,6 +448,7 @@
                 var b = document.querySelector('.h-page .badge.warm');
                 if (b) b.textContent = 'Done';
                 A.toast('Job movido pra Done — pendência resolvida ✓', 'ok');
+                notaReviewDone(job.id, job.cliente, job.tipo_servico);
               }
             }).catch(function () { });
           }

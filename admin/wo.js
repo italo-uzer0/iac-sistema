@@ -323,6 +323,23 @@
     return A.sb.from('work_orders').update(patch).eq('id', id).then(function (r) { if (r.error) throw r.error; });
   }
 
+  // ---- review pos-Done (regra 23): grava nota com o SMS de review pronto ----
+  function smsReview(cliente, servico) {
+    var nome = String(cliente || '').trim().split(/\s+/)[0] || 'there';
+    var serv = String(servico || '').trim() || 'project';
+    return "Hi " + nome + ", it's Italo from IAC Home Improvement — thank you for trusting us with your " + serv + "! If you're happy with the work, a quick Google review really helps our local family business. Takes 30 seconds: [REVIEW_LINK]";
+  }
+  function notaReviewDone(jobId, cliente, servico) {
+    if (!jobId) return;
+    A.sb.from('job_notes').insert({
+      job_id: jobId, data: A.hoje(), titulo: 'SMS de review (enviar pro cliente)',
+      texto: smsReview(cliente, servico)
+    }).then(function (r) {
+      if (r.error) return A.toastErr(r.error);
+      A.toast('SMS de review pronto nas notas 📋', 'ok');
+    }).catch(function () { });
+  }
+
   // Finaliza a WO: marca 'Concluido' e avalia se o job pode fechar (via core).
   // Se travar por pendencia de valor, escreve nota no job e avisa o Italo.
   function finalizarWO(wo, onDone) {
@@ -332,6 +349,7 @@
     }).then(function (res) {
       if (res.done) {
         A.toast('✔ Trabalho finalizado — job movido pra Done', 'ok');
+        notaReviewDone(wo.job_id, wo.cliente, wo.servico);
       } else if (res.pendencias && res.pendencias.length) {
         if (wo.job_id) {
           A.sb.from('job_notes').insert({
@@ -477,7 +495,10 @@
           if ((field === 'valor_repasse' && String(wo.status || '') === 'Concluido') ||
               (field === 'status' && v === 'Concluido')) {
             A.avaliarJobDone(wo.job_id).then(function (res) {
-              if (res.done) A.toast('Job movido pra Done — pendência resolvida ✓', 'ok');
+              if (res.done) {
+                A.toast('Job movido pra Done — pendência resolvida ✓', 'ok');
+                notaReviewDone(wo.job_id, wo.cliente, wo.servico);
+              }
               else if (res.pendencias && res.pendencias.length)
                 A.toast('WO concluída — falta ' + res.pendencias.join(', ') + ' pra fechar o job', 'err');
             }).catch(function () { });
