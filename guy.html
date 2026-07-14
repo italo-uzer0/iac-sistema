@@ -765,6 +765,13 @@ window.IAC_CFG = {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
     });
   }
+
+  function linkify(s) {
+    return esc(s).replace(/(https?://[^s<]+)/g, function (u) {
+      var label = /maps.google|goo.gl/maps/.test(u) ? '🗺️ ABRIR NO MAPA' : u.replace(/^https?:///, '').slice(0, 30) + '…';
+      return '<a href="' + u + '" target="_blank" rel="noopener" style="font-weight:700;text-decoration:underline">' + label + '</a>';
+    });
+  }
   function getToken() {
     var m = location.search.match(/[?&]t=([^&]+)/);
     if (m) return decodeURIComponent(m[1]);
@@ -951,7 +958,7 @@ window.IAC_CFG = {
       h += '<div class="checklist" id="chk">' + W.checklist.map(function (c, i) {
         return '<button class="chk' + (c.done ? ' done' : '') + '" data-i="' + i + '">' +
           '<span class="num">' + (i + 1) + '</span>' +
-          '<span class="txt">' + esc(c.item) +
+          '<span class="txt">' + linkify(c.item) +
           '<span class="here">' + esc(T.currentStep) + '</span></span>' +
           '<span class="box">' + ic('check', 18) + '</span></button>';
       }).join('') + '</div>';
