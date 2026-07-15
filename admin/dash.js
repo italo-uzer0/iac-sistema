@@ -30,23 +30,91 @@
   A.pages.dash = {
     render: function (root) {
       sb = A.sb;
+      var mes = A.hoje().slice(0, 7);
       return Promise.all([
         sb.from('jobs').select('id,cliente,status,valor_total,pago,pagamento'),
         sb.from('work_orders').select('id,cliente,sub_id,data,hora,servico,status,valor_repasse,pago_ao_sub'),
-        sb.from('caixa').select('tipo,valor,status'),
-        sb.from('qbo_snapshot').select('*').order('id', { ascending: false }).limit(1)
+        sb.from('caixa').select('tipo,valor,status,data'),
+        sb.from('qbo_snapshot').select('*').order('id', { ascending: false }).limit(1),
+        sb.from('contas_fixas').select('id,nome,valor,frequencia').eq('ativo', true),
+        sb.from('contas_pagamentos').select('conta_id,valor,mes').eq('mes', mes)
       ]).then(function (rs) {
         rs.forEach(function (r) { if (r.error) throw r.error; });
         var jobs = rs[0].data || [];
         var wos = rs[1].data || [];
         var caixa = rs[2].data || [];
         var qbo = (rs[3].data && rs[3].data[0]) || null;
-        desenhar(root, jobs, wos, caixa, qbo);
+        var contas = rs[4].data || [];
+        var pagosFixas = rs[5].data || [];
+        desenhar(root, jobs, wos, caixa, qbo, contas, pagosFixas);
       });
     }
   };
 
-  function desenhar(root, jobs, wos, caixa, qbo) {
+  var MESES_PT = ['', 'Janeiro', 'Fevereiro', 'Marco', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+  function mensalEsperado(c) {
+    var v = Number(c.valor || 0);
+    return c.frequencia === 'semanal' ? Math.round(v * 4.33) : v;
+  }
+
+  // ---- hero "Lucro do mes" (mes corrente, so caixa status=pago) ----
+  function heroLucro(caixa, contas, pagosFixas) {
+    var mes = A.hoje().slice(0, 7);
+    var mesLabel = (MESES_PT[Number(mes.slice(5))] || mes) + '/' + mes.slice(0, 4);
+
+    var recebido = 0, repasses = 0, despesas = 0;
+    caixa.forEach(function (c) {
+      if (c.status !== 'pago') return;
+      if (String(c.data || '').slice(0, 7) !== mes) return;
+      var v = Number(c.valor || 0);
+      if (c.tipo === 'entrada') recebido += v;
+      else if (c.tipo === 'repasse') repasses += v;
+      else if (c.tipo === 'despesa') despesas += v;
+    });
+
+    var fixoMensal = 0;
+    contas.forEach(function (c) { fixoMensal += mensalEsperado(c); });
+    var fixasPagas = 0;
+    pagosFixas.forEach(function (p) { fixasPagas += Number(p.valor || 0); });
+    var fixasRestantes = Math.max(0, fixoMensal - fixasPagas);
+
+    var lucro = recebido - repasses - despesas;
+    var projecao = lucro - fixasRestantes;
+
+    // break-even: cobrir o total fixo mensal com o que entra
+    var meta = fixoMensal;
+    var pct = meta > 0 ? Math.min(100, Math.round(recebido / meta * 100)) : 100;
+    var bateu = recebido >= meta;
+
+    function sinal(v) { return v >= 0 ? 'lc-pos' : 'lc-neg'; }
+
+    return '<div class="card lc-hero">' +
+      '<div class="lc-title">📊 Lucro do mes — ' + A.esc(mesLabel) + '</div>' +
+      '<div class="lc-lucro-lbl">Lucro liquido ate agora</div>' +
+      '<div class="lc-lucro ' + sinal(lucro) + '">' + A.esc(A.money(lucro)) + '</div>' +
+      '<div class="lc-grid">' +
+      lcItem('Recebido', A.money(recebido), 'lc-pos') +
+      lcItem('Repasses pagos', A.money(-repasses), repasses > 0 ? 'lc-neg' : '') +
+      lcItem('Despesas', A.money(-despesas), despesas > 0 ? 'lc-neg' : '') +
+      lcItem('Fixas restantes', A.money(-fixasRestantes), fixasRestantes > 0 ? 'lc-warn' : 'lc-pos') +
+      '</div>' +
+      '<div class="lc-proj">Projecao do mes (lucro − fixas restantes): ' +
+      '<b class="' + sinal(projecao) + '">' + A.esc(A.money(projecao)) + '</b></div>' +
+      '<div class="lc-be-txt">Pra empatar o mes: faturar ~' + A.esc(A.money(meta)) +
+      ' <span class="muted">(total das contas fixas do mes)</span></div>' +
+      '<div class="lc-bar"><div class="lc-bar-fill' + (bateu ? ' ok' : '') + '" style="width:' + pct + '%"></div></div>' +
+      '<div class="lc-be-sub">Recebido ' + A.esc(A.money(recebido)) + ' de ' + A.esc(A.money(meta)) +
+      ' (' + pct + '%)' + (bateu ? ' — mes empatado, daqui pra frente e lucro ✔' : '') + '</div>' +
+      '</div>';
+  }
+  function lcItem(lbl, val, cls) {
+    return '<div class="lc-item"><div class="lbl">' + A.esc(lbl) + '</div>' +
+      '<div class="val ' + (cls || '') + '">' + A.esc(val) + '</div></div>';
+  }
+
+  function desenhar(root, jobs, wos, caixa, qbo, contas, pagosFixas) {
     // ---- cards resumo ----
     var aReceber = 0, ativos = 0;
     jobs.forEach(function (j) {
@@ -71,6 +139,7 @@
 
     var html =
       '<div class="h-page">' + A.icon('dashboard', 22) + ' Dashboard</div>' +
+      heroLucro(caixa, contas || [], pagosFixas || []) +
       '<div class="stat-grid">' +
       stat('A receber (confirmado)', A.money(aReceber), 'orange', 'jobs confirmados: total − pago') +
       stat('Recebido (caixa)', A.money(recebido), 'green', 'entradas pagas registradas') +
