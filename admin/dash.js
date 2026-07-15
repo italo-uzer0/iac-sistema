@@ -34,7 +34,7 @@
       return Promise.all([
         sb.from('jobs').select('id,cliente,status,valor_total,pago,pagamento'),
         sb.from('work_orders').select('id,cliente,sub_id,data,hora,servico,status,valor_repasse,pago_ao_sub'),
-        sb.from('caixa').select('tipo,valor,status,data'),
+        sb.from('caixa').select('tipo,valor,status,data,categoria'),
         sb.from('qbo_snapshot').select('*').order('id', { ascending: false }).limit(1),
         sb.from('contas_fixas').select('id,nome,valor,frequencia').eq('ativo', true),
         sb.from('contas_pagamentos').select('conta_id,valor,mes').eq('mes', mes)
@@ -64,20 +64,26 @@
     var mes = A.hoje().slice(0, 7);
     var mesLabel = (MESES_PT[Number(mes.slice(5))] || mes) + '/' + mes.slice(0, 4);
 
-    var recebido = 0, repasses = 0, despesas = 0;
+    var recebido = 0, repasses = 0, despesas = 0, fixasViaCaixa = 0;
     caixa.forEach(function (c) {
       if (c.status !== 'pago') return;
       if (String(c.data || '').slice(0, 7) !== mes) return;
       var v = Number(c.valor || 0);
       if (c.tipo === 'entrada') recebido += v;
       else if (c.tipo === 'repasse') repasses += v;
-      else if (c.tipo === 'despesa') despesas += v;
+      else if (c.tipo === 'despesa') {
+        despesas += v;
+        if (/conta_fixa/i.test(c.categoria || '')) fixasViaCaixa += v;
+      }
     });
 
     var fixoMensal = 0;
     contas.forEach(function (c) { fixoMensal += mensalEsperado(c); });
     var fixasPagas = 0;
     pagosFixas.forEach(function (p) { fixasPagas += Number(p.valor || 0); });
+    // anti dupla-contagem: conta fixa lancada direto no caixa (categoria conta_fixa)
+    // tambem abate das "fixas restantes", mesmo sem registro em contas_pagamentos
+    fixasPagas = Math.max(fixasPagas, fixasViaCaixa);
     var fixasRestantes = Math.max(0, fixoMensal - fixasPagas);
 
     var lucro = recebido - repasses - despesas;
