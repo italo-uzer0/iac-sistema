@@ -588,3 +588,20 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
 }
 .dia-sem-tx b { color: var(--warm); }
 .dia-sem-row .badge { flex: none; }
+
+/* ---------- caixa v3 (sub-abas Real / Em Hold / Contas Fixas) ---------- */
+.cx3-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.cx3-tab {
+  flex: 1; padding: 10px 6px; border-radius: 12px; border: 1.5px solid var(--line);
+  background: var(--card); font-weight: 700; font-size: 13px; color: var(--muted);
+  cursor: pointer; font-family: inherit;
+}
+.cx3-tab.active { background: var(--warm); color: var(--light); border-color: var(--warm); }
+.cx3-hero .lbl { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.cx3-hero .big { font-size: 22px; font-weight: 800; color: var(--orange); margin: 4px 0 2px; }
+.cx3-hero .sub { font-size: 12px; color: var(--muted); }
+.cx3-link { text-decoration: none; color: inherit; }
+.cx3-val { white-space: nowrap; }
+.cx3-faixa { color: var(--muted); }
+.cx3-conta-acts { display: flex; gap: 6px; align-items: center; flex: none; }
+.cx3-reserva-big { font-size: 20px; font-weight: 800; color: var(--green); }
