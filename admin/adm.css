@@ -95,7 +95,8 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
 .bottom-nav .iac-icon { width: 22px; height: 22px; }
 
 /* ---------- cards / geral ---------- */
-.card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; margin-bottom: 12px; }
+.card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; margin-bottom: 12px; animation: fadeup .22s ease both; }
+@keyframes fadeup { from { opacity: 0; transform: translateY(6px); } }
 .card h3 { margin: 0 0 10px; font-size: 15px; color: var(--warm); display: flex; align-items: center; gap: 8px; }
 .h-page { font-size: 20px; font-weight: 800; color: var(--warm); margin: 4px 0 12px; display: flex; align-items: center; gap: 8px; }
 .h-page .grow { flex: 1; }
@@ -110,7 +111,8 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
   border-radius: 11px; min-height: 44px; padding: 10px 16px;
   font-size: 14px; font-weight: 700;
 }
-.btn:active { transform: scale(.98); }
+.btn { transition: transform .12s ease, background .15s ease, box-shadow .15s ease, opacity .15s ease; }
+.btn:active { transform: scale(.96); }
 .btn.sec { background: var(--light); color: var(--warm); }
 .btn.danger { background: var(--red); }
 .btn.green { background: var(--green); }
@@ -179,28 +181,61 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
 .sheet .opt .iac-icon { color: var(--orange); }
 
 /* ---------- kanban ---------- */
-.kanban { display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 16px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
-.kcol { flex: 0 0 82vw; max-width: 320px; scroll-snap-align: start; }
-@media (min-width: 760px) { .kcol { flex: 0 0 280px; } }
-.kcol-h {
-  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
-  background: var(--warm); color: var(--light); border-radius: 12px; margin-bottom: 8px;
-  font-weight: 700; font-size: 13.5px; position: sticky; top: 0;
+.kanban {
+  display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 16px;
+  scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth; cursor: grab;
 }
-.kcol-h .count { background: var(--orange); color: #fff; border-radius: 999px; font-size: 11px; padding: 1px 8px; margin-left: auto; }
+.kanban.grabbing { cursor: grabbing; scroll-snap-type: none; scroll-behavior: auto; user-select: none; }
+.kanban.grabbing .kcard { pointer-events: none; }
+.kcol { flex: 0 0 86vw; max-width: 342px; scroll-snap-align: start; animation: fadeup .22s ease both; }
+@media (min-width: 760px) { .kcol { flex: 0 0 300px; } }
+.kcol-h {
+  display: flex; align-items: center; gap: 7px; padding: 9px 11px;
+  background: var(--warm); color: var(--light); border-radius: 12px; margin-bottom: 8px;
+  font-weight: 700; font-size: 13.5px; position: sticky; top: 0; z-index: 5;
+  box-shadow: 0 2px 8px rgba(61, 43, 31, .14);
+}
+.kcol-h .ksum { margin-left: auto; font-size: 11px; font-weight: 800; color: #b9e3c6; white-space: nowrap; }
+.kcol-h .count { background: var(--orange); color: #fff; border-radius: 999px; font-size: 11px; padding: 1px 8px; flex: none; }
 .kcard {
   background: var(--card); border-radius: 12px; box-shadow: var(--shadow);
-  padding: 11px 12px; margin-bottom: 8px; cursor: pointer; border-left: 4px solid var(--orange);
+  padding: 12px 13px; margin-bottom: 9px; cursor: pointer; border-left: 4px solid var(--orange);
+  transition: transform .16s ease, box-shadow .16s ease, opacity .16s ease;
 }
-.kcard .nm { font-weight: 700; color: var(--warm); font-size: 14.5px; }
-.kcard .sv { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 5px; margin: 2px 0 6px; }
-.kcard .sv .iac-icon { width: 15px; height: 15px; flex: none; }
-.kcard .ft { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.kcard .vl { font-weight: 800; color: var(--green); font-size: 13.5px; margin-right: auto; }
+.kcard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(61, 43, 31, .12), 0 12px 26px rgba(61, 43, 31, .12);
+}
+.kcard:active { transform: scale(.985); }
+/* sem corte: nome e servico mostram TUDO, o card cresce */
+.kcard .nm {
+  font-weight: 800; color: var(--warm); font-size: 15px; line-height: 1.3;
+  white-space: normal; overflow: visible; overflow-wrap: anywhere;
+}
+.kcard .sv {
+  font-size: 12.5px; color: var(--muted); display: flex; align-items: flex-start; gap: 5px;
+  margin: 3px 0 7px; line-height: 1.4;
+  white-space: normal; overflow: visible; overflow-wrap: anywhere;
+}
+.kcard .sv .iac-icon { width: 15px; height: 15px; flex: none; margin-top: 2px; }
+.kcard .ft { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .kcard .mv {
   background: var(--light); border: none; color: var(--warm); font-weight: 700;
   border-radius: 8px; min-height: 32px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  margin-left: auto; transition: transform .12s ease, background .15s ease;
 }
+.kcard .mv:active { transform: scale(.92); }
+/* chips de info do card */
+.kchip {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: var(--light); color: var(--warm); border-radius: 999px;
+  font-size: 11px; font-weight: 700; padding: 3px 9px; white-space: nowrap;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
+.kchip.vl { background: #e2f2e8; color: var(--green); font-size: 12px; font-weight: 800; }
+.kchip.warm { background: var(--warm); color: var(--light); }
+.kchip.fire { background: #fdeae6; color: var(--red); box-shadow: 0 0 0 1px #f3c4ba inset; }
 
 /* ---------- inline edit ---------- */
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
@@ -229,6 +264,8 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
   background: var(--light); border: none; color: var(--warm); border-radius: 9px;
   min-width: 40px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
 }
+.icon-btn { transition: transform .12s ease, background .15s ease; }
+.icon-btn:active { transform: scale(.88); }
 .icon-btn.red { color: var(--red); background: #fdeae6; }
 
 /* ---------- checklist ---------- */
@@ -361,6 +398,22 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
   background: var(--light); color: var(--warm); font-weight: 800; font-size: 11.5px;
   text-transform: uppercase; letter-spacing: .04em; padding: 6px 8px;
 }
+
+/* ---------- skeleton shimmer (kanban v2.2) ---------- */
+.skel {
+  position: relative; overflow: hidden; border-radius: 12px;
+  background: #efe6da; min-height: 20px;
+}
+.skel::after {
+  content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .6), transparent);
+  animation: shimmer 1.1s infinite;
+}
+@keyframes shimmer { to { transform: translateX(100%); } }
+
+/* ---------- 📎 documentos do job (v2.2) ---------- */
+.doc-row .t1 { overflow-wrap: anywhere; }
+.doc-row .btn.sm { flex: none; }
 
 /* ---------- badges de documentacao dos subs (v2.1) ---------- */
 .badge.badge-doc { font-size: 12px; padding: 5px 12px; }

@@ -1,7 +1,9 @@
 /* ============================================================================
    IAC ADMIN v2 — jobs.js
-   Kanban por status do pipeline + detalhe 100% editavel inline + extras +
-   upload de invoice (bucket 'invoices') + link do portal do cliente.
+   Kanban "vivo" por status do pipeline (cards completos com chips, drag de
+   card + drag-scroll do board, soma $ por coluna, skeleton) + detalhe 100%
+   editavel inline + extras + 📎 Documentos (bucket 'invoices', multi-upload)
+   + link do portal do cliente.
    ============================================================================ */
 (function () {
   'use strict';
@@ -50,7 +52,18 @@
   /* ======================================================== KANBAN ======= */
   var kFiltro = { busca: '', status: '' };
 
+  // skeleton do kanban enquanto os dados chegam (sensacao de app de verdade)
+  function skelKanban() {
+    var col = '<div class="kcol"><div class="skel" style="height:37px;margin-bottom:8px"></div>' +
+      '<div class="skel" style="height:104px;margin-bottom:8px"></div>' +
+      '<div class="skel" style="height:104px;margin-bottom:8px"></div>' +
+      '<div class="skel" style="height:104px"></div></div>';
+    return '<div class="h-page">' + A.icon('jobs', 22) + ' Jobs</div>' +
+      '<div class="kanban">' + col + col + col + '</div>';
+  }
+
   function renderKanban(root) {
+    root.innerHTML = skelKanban();
     return Promise.all([
       A.sb.from('jobs').select('*').order('created_at', { ascending: false }),
       A.sb.from('work_orders').select('job_id,status,valor_repasse')
@@ -103,6 +116,32 @@
 
     var dragId = null;       // id do card sendo arrastado (HTML5 DnD)
     var clickSupresso = false; // suprime o click fantasma depois de um touch-drag
+
+    // ---- drag-scroll do BOARD (mouse): segura o fundo e arrasta pro lado.
+    // So ativa quando o mousedown NAO for num card/botao (nao conflita com o
+    // drag&drop de card). No touch o scroll ja e natural.
+    (function () {
+      var kb = document.getElementById('kanban');
+      var down = false, sx = 0, sl = 0;
+      kb.addEventListener('mousedown', function (ev) {
+        if (ev.button !== 0) return;
+        if (ev.target.closest('.kcard') || ev.target.closest('button') ||
+          ev.target.closest('a') || ev.target.closest('input') || ev.target.closest('select')) return;
+        down = true; sx = ev.clientX; sl = kb.scrollLeft;
+        kb.classList.add('grabbing');
+        ev.preventDefault();
+      });
+      document.addEventListener('mousemove', function (ev) {
+        if (!down) return;
+        if (!kb.isConnected) { down = false; return; }
+        kb.scrollLeft = sl - (ev.clientX - sx);
+      });
+      document.addEventListener('mouseup', function () {
+        if (!down) return;
+        down = false;
+        kb.classList.remove('grabbing');
+      });
+    })();
 
     function byId(id) { return jobs.filter(function (j) { return j.id === id; })[0]; }
 
@@ -194,8 +233,10 @@
       kb.innerHTML = cols.map(function (st) {
         var list = vis.filter(function (j) { return j.status === st; });
         if (!list.length && kFiltro.busca && !kFiltro.status) return '';
+        var soma = list.reduce(function (s, j) { return s + Number(j.valor_total || 0); }, 0);
         return '<div class="kcol" data-st="' + A.esc(st) + '">' +
           '<div class="kcol-h">' + A.icon(window.IAC_ICONS.forStatus(st), 16) + ' ' + A.esc(st) +
+          (soma > 0 ? '<span class="ksum" title="soma dos valores da coluna">' + A.money(soma) + '</span>' : '<span class="ksum"></span>') +
           '<span class="count">' + list.length + '</span></div>' +
           (list.length ? list.map(function (j) { return cardHtml(j, A.jobPendenteValor(j, pendMap[j.id])); }).join('') :
             '<div class="empty" style="padding:18px 10px"><span class="muted">vazio</span></div>') +
@@ -270,14 +311,22 @@
 
   function cardHtml(j, pend) {
     var ctNome = j.contractor ? ((A.cache.ctById[j.contractor] || {}).nome || j.contractor) : null;
+    // follow-up vencido (cadencia 3/7/14) so faz sentido em Estimate Enviado
+    var fuVencido = j.status === 'Estimate Enviado' && j.followup_em &&
+      String(j.followup_em).slice(0, 10) <= A.hoje();
+    var chips = [];
+    chips.push('<span class="kchip vl">💰 ' + A.money(j.valor_total) + '</span>');
+    chips.push(A.badgePagamento(j.pagamento));
+    if (j.sub) chips.push('<span class="kchip">👷 ' + A.esc(A.subNome(j.sub)) + '</span>');
+    if (j.data_projeto) chips.push('<span class="kchip">📅 ' + A.esc(A.fmtData(j.data_projeto)) + '</span>');
+    if (ctNome) chips.push('<span class="kchip warm" title="job de contractor — quem paga e o contractor">💼 ' + A.esc(ctNome) + '</span>');
+    if (fuVencido) chips.push('<span class="kchip fire" title="follow-up vencido — ver no Meu Dia">🔥 follow-up</span>');
     return '<div class="kcard" data-id="' + A.esc(j.id) + '">' +
       '<div class="nm">' + A.esc(j.cliente || '(sem nome)') + '</div>' +
-      (pend ? '<div style="margin:2px 0"><span class="badge yellow" title="a work order ja foi finalizada mas falta preencher valor pra o job ir pra Done">⚠️ Falta valor — WO finalizada</span></div>' : '') +
-      (ctNome ? '<div style="margin:2px 0"><span class="badge warm" title="job de contractor — quem paga e o contractor">💼 ' + A.esc(ctNome) + '</span></div>' : '') +
-      '<div class="sv">' + A.icon(window.IAC_ICONS.forService(j.tipo_servico), 15) + ' ' +
-      A.esc(j.tipo_servico || 'servico?') + (j.cidade_st ? ' · ' + A.esc(j.cidade_st) : '') + '</div>' +
-      '<div class="ft"><span class="vl">' + A.money(j.valor_total) + '</span>' +
-      A.badgePagamento(j.pagamento) +
+      (pend ? '<div style="margin:3px 0"><span class="badge yellow" title="a work order ja foi finalizada mas falta preencher valor pra o job ir pra Done">⚠️ Falta valor — WO finalizada</span></div>' : '') +
+      '<div class="sv">' + A.icon(window.IAC_ICONS.forService(j.tipo_servico), 15) + ' <span>' +
+      A.esc(j.tipo_servico || 'servico?') + (j.cidade_st ? ' · ' + A.esc(j.cidade_st) : '') + '</span></div>' +
+      '<div class="ft">' + chips.join('') +
       '<button class="mv">mover →</button></div>' +
       '</div>';
   }
@@ -379,11 +428,13 @@
       '<button class="btn sm" id="ex-add">+ Add</button>' +
       '</div></div>' +
 
-      // ---- invoices / PDFs ----
-      '<div class="card"><h3>' + A.icon('receipt', 18) + ' Invoices / PDFs</h3>' +
+      // ---- documentos (proposal, invoice, qualquer PDF do job) ----
+      '<div class="card"><h3>' + A.icon('receipt', 18) + ' 📎 Documentos <span class="grow"></span>' +
+      '<span class="badge" id="j-files-count">…</span></h3>' +
+      '<div class="muted" style="margin:-4px 0 8px">Proposal, invoice e PDFs do job — tudo num lugar so.</div>' +
       '<div id="j-files">' + A.loading() + '</div>' +
-      '<label class="btn sec block" style="margin-top:8px;cursor:pointer">Enviar PDF / arquivo' +
-      '<input type="file" id="j-upload" style="display:none" /></label>' +
+      '<label class="btn sec block" style="margin-top:8px;cursor:pointer">📤 Enviar documentos (pode varios de uma vez)' +
+      '<input type="file" id="j-upload" multiple style="display:none" /></label>' +
       '</div>' +
 
       // ---- portal do cliente ----
@@ -648,19 +699,37 @@
       });
     });
 
-    // ---------- invoices (storage) ----------
+    // ---------- 📎 documentos (storage, bucket invoices/<job_id>/) ----------
     var bucket = A.sb.storage.from('invoices');
+    function docEmoji(nome) {
+      var ext = String(nome || '').toLowerCase().split('.').pop();
+      if (ext === 'pdf') return '📄';
+      if (['jpg', 'jpeg', 'png', 'webp', 'heic', 'gif'].indexOf(ext) >= 0) return '🖼️';
+      if (['doc', 'docx'].indexOf(ext) >= 0) return '📝';
+      if (['xls', 'xlsx', 'csv'].indexOf(ext) >= 0) return '📊';
+      return '📎';
+    }
+    function fmtBytes(b) {
+      if (b === null || b === undefined || isNaN(Number(b))) return '';
+      b = Number(b);
+      if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
+      if (b >= 1024) return Math.round(b / 1024) + ' KB';
+      return b + ' B';
+    }
     function listarArquivos() {
       var box = document.getElementById('j-files');
+      var cnt = document.getElementById('j-files-count');
       bucket.list(job.id, { limit: 100, sortBy: { column: 'created_at', order: 'desc' } }).then(function (r) {
-        if (r.error) { box.innerHTML = '<div class="muted">Nao consegui listar: ' + A.esc(r.error.message) + '</div>'; return; }
+        if (r.error) { box.innerHTML = '<div class="muted">Nao consegui listar: ' + A.esc(r.error.message) + '</div>'; if (cnt) cnt.textContent = '!'; return; }
         var files = (r.data || []).filter(function (f) { return f.id !== null || f.name.indexOf('.') >= 0; });
-        if (!files.length) { box.innerHTML = '<div class="muted">Nenhum arquivo ainda. Sobe o PDF do proposal/invoice aqui.</div>'; return; }
+        if (cnt) cnt.textContent = files.length;
+        if (!files.length) { box.innerHTML = '<div class="muted">Nenhum documento ainda. Sobe o PDF do proposal/invoice aqui embaixo.</div>'; return; }
         box.innerHTML = files.map(function (f, i) {
-          return '<div class="li-row"><div class="main"><div class="t1">' + A.esc(f.name) + '</div>' +
-            '<div class="t2">' + A.esc((f.created_at || '').slice(0, 10)) + '</div></div>' +
-            '<button class="icon-btn" data-f-open="' + i + '" title="abrir">' + A.icon('open', 18) + '</button>' +
-            '<button class="icon-btn red" data-f-del="' + i + '">✕</button></div>';
+          var sz = fmtBytes(f.metadata && f.metadata.size);
+          return '<div class="li-row doc-row"><div class="main"><div class="t1">' + docEmoji(f.name) + ' ' + A.esc(f.name) + '</div>' +
+            '<div class="t2">' + A.esc((f.created_at || '').slice(0, 10)) + (sz ? ' · ' + sz : '') + '</div></div>' +
+            '<button class="btn sm sec" data-f-open="' + i + '" title="abrir numa nova aba">' + A.icon('open', 15) + ' Abrir</button>' +
+            '<button class="icon-btn red" data-f-del="' + i + '" title="excluir">✕</button></div>';
         }).join('');
         box.querySelectorAll('[data-f-open]').forEach(function (btn) {
           btn.addEventListener('click', function () {
@@ -686,19 +755,28 @@
     listarArquivos();
 
     document.getElementById('j-upload').addEventListener('change', function (ev) {
-      var file = ev.target.files[0];
-      if (!file) return;
-      A.toast('Enviando ' + file.name + '…');
-      var nome = file.name.replace(/[^\w.\-]+/g, '_');
-      bucket.upload(job.id + '/' + nome, file, { upsert: true }).then(function (r) {
+      var files = Array.prototype.slice.call(ev.target.files || []);
+      if (!files.length) return;
+      A.toast('Enviando ' + files.length + ' arquivo' + (files.length > 1 ? 's' : '') + '…');
+      var falhas = [];
+      var chain = Promise.resolve();
+      files.forEach(function (file) {
+        chain = chain.then(function () {
+          var nome = file.name.replace(/[^\w.\-]+/g, '_');
+          return bucket.upload(job.id + '/' + nome, file, { upsert: true }).then(function (r) {
+            if (r.error) falhas.push(r.error);
+          });
+        });
+      });
+      chain.then(function () {
         ev.target.value = '';
-        if (r.error) {
-          if (/row-level security|Unauthorized|violates/i.test(r.error.message || '')) {
+        if (falhas.length) {
+          if (/row-level security|Unauthorized|violates/i.test(falhas[0].message || '')) {
             A.toast('Upload bloqueado: falta rodar as policies do bucket invoices no Supabase (SQL em sistema/supabase/admin_v2.sql)', 'err');
-          } else A.toastErr(r.error);
-          return;
+          } else A.toastErr(falhas[0]);
         }
-        A.toast('Arquivo enviado', 'ok');
+        var ok = files.length - falhas.length;
+        if (ok > 0) A.toast(ok + ' documento' + (ok > 1 ? 's' : '') + ' no job 📎', 'ok');
         listarArquivos();
       });
     });
