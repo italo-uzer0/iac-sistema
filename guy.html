@@ -969,7 +969,8 @@ window.IAC_CFG = {
       callBtn: 'LIGAR PRO ITALO', waBtn: 'WHATSAPP',
       addCal: 'ADICIONAR A MINHA AGENDA',
       calDetails: 'Dúvida? Italo (848) 234-0283', calLink: 'Seu portal',
-      rtStop: 'Parada', rtDone: 'concluída'
+      rtStop: 'Parada', rtDone: 'concluída',
+      rtDay: 'Roteiro do dia', rtStopOne: 'parada', rtStopMany: 'paradas'
     },
     en: {
       yourJob: 'Your job', scope: 'Scope of work', checklist: 'Checklist',
@@ -990,7 +991,8 @@ window.IAC_CFG = {
       callBtn: 'CALL ITALO', waBtn: 'WHATSAPP',
       addCal: 'ADD TO MY CALENDAR',
       calDetails: 'Questions? Italo (848) 234-0283', calLink: 'Your portal',
-      rtStop: 'Stop', rtDone: 'done'
+      rtStop: 'Stop', rtDone: 'done',
+      rtDay: 'Route for the day', rtStopOne: 'stop', rtStopMany: 'stops'
     },
     es: {
       yourJob: 'Tu trabajo', scope: 'Alcance del trabajo', checklist: 'Lista de tareas',
@@ -1011,7 +1013,8 @@ window.IAC_CFG = {
       callBtn: 'LLAMAR A ITALO', waBtn: 'WHATSAPP',
       addCal: 'AGREGAR A MI CALENDARIO',
       calDetails: '¿Dudas? Italo (848) 234-0283', calLink: 'Tu portal',
-      rtStop: 'Parada', rtDone: 'lista'
+      rtStop: 'Parada', rtDone: 'lista',
+      rtDay: 'Ruta del día', rtStopOne: 'parada', rtStopMany: 'paradas'
     }
   };
 
@@ -1074,23 +1077,37 @@ window.IAC_CFG = {
     if (GUY.DEMO) h += '<div class="demo-banner">DEMO — sample work order, no real data</div>';
 
     // HERO
+    // MODO ROTEIRO REAL (dia do Edu com paradas 📍): o topo e o DIA, nao um
+    // cliente. Titulo = data (ex: "Quinta, 07/16/2026"), subtitulo = "Roteiro
+    // do dia · N paradas". Nada de endereco/hora unicos no topo — cada parada
+    // carrega o seu no proprio cartao. Assim UM link cobre o dia inteiro do Edu.
+    var isRoteiro = !!(RT && RT.roteiro);
+    var nStops = isRoteiro ? RT.stops.length : 0;
+    var heroTitle = isRoteiro ? dateLong(W.data, lang) : W.cliente;
+    var heroSub = isRoteiro
+      ? (T.rtDay + ' · ' + nStops + ' ' + (nStops === 1 ? T.rtStopOne : T.rtStopMany))
+      : W.servico;
     h += '<div class="guy-hero">' +
       '<div class="svc"><div class="ico">' + ic(svcIcon, 26) + '</div>' +
-      '<div><h1>' + esc(W.cliente) + '</h1><div class="s">' + esc(W.servico) + '</div></div></div>';
-    if (addr) {
-      h += '<div class="gline">' + ic('map', 18) + '<span>' + esc(addr) + '</span></div>';
-      if (!RT) h += '<div class="gline">' + ic('open', 18) + '<a href="' + esc(mapUrl) + '" target="_blank" rel="noopener">' + esc(T.map) + '</a></div>';
-    }
-    h += '<div class="gline">' + ic('schedule', 18) + '<span>' + dateLong(W.data, lang) +
-      (W.hora ? ' · ' + esc(W.hora) : '') + '</span></div>';
-    // 📅 ADICIONAR A MINHA AGENDA — so quando a WO tem data E nao ha cartao de
-    // parada (cada cartao ja carrega o proprio botao de agenda). SUB-SAFE:
-    // evento sem NENHUM valor financeiro.
-    if (W.data && !RT) {
-      var gcal = gcalUrl(addr);
-      if (gcal) {
-        h += '<div class="gcal-wrap"><a class="gcal-btn" href="' + esc(gcal) +
-          '" target="_blank" rel="noopener">📅 ' + esc(T.addCal) + '</a></div>';
+      '<div><h1>' + esc(heroTitle) + '</h1><div class="s">' + esc(heroSub) + '</div></div></div>';
+    if (isRoteiro) {
+      // dia com paradas: endereco + hora + mapa + agenda vivem em CADA cartao.
+      // Titulo (H1) ja e a data — nada mais no topo. As paradas vem logo abaixo.
+    } else {
+      if (addr) {
+        h += '<div class="gline">' + ic('map', 18) + '<span>' + esc(addr) + '</span></div>';
+        if (!RT) h += '<div class="gline">' + ic('open', 18) + '<a href="' + esc(mapUrl) + '" target="_blank" rel="noopener">' + esc(T.map) + '</a></div>';
+      }
+      h += '<div class="gline">' + ic('schedule', 18) + '<span>' + dateLong(W.data, lang) +
+        (W.hora ? ' · ' + esc(W.hora) : '') + '</span></div>';
+      // 📅 ADICIONAR A MINHA AGENDA — so quando a WO tem data E nao ha cartao de
+      // parada (cada cartao ja carrega o proprio botao de agenda). SUB-SAFE.
+      if (W.data && !RT) {
+        var gcal = gcalUrl(addr);
+        if (gcal) {
+          h += '<div class="gcal-wrap"><a class="gcal-btn" href="' + esc(gcal) +
+            '" target="_blank" rel="noopener">📅 ' + esc(T.addCal) + '</a></div>';
+        }
       }
     }
     h += '</div>';
@@ -1291,7 +1308,7 @@ window.IAC_CFG = {
         inicio.push(it);
       }
     });
-    return { inicio: inicio, stops: stops, fim: fim };
+    return { inicio: inicio, stops: stops, fim: fim, roteiro: true };
   }
   // [RT-PARSE-END]
 
