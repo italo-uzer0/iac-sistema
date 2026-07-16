@@ -230,6 +230,84 @@ body {
 .chk:active { transform: scale(.985); }
 .chk[disabled] { opacity: .55; pointer-events: none; }
 
+/* ---------- MODO ROTEIRO (dia de quotes — paradas em accordion) ----------
+   Prefixo stp- proprio. Cartao grande clicavel por parada: hora em chip,
+   nome + endereco, anel de progresso do grupo. Expandido: mapa, agenda e o
+   checklist da parada (mesmos .chk tocaveis de sempre). */
+.stp-loose { margin-bottom: 12px; }
+.stp-wrap { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+
+.stp-card {
+  background: var(--card); border: 1.5px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; transition: border-color .2s, box-shadow .2s;
+}
+.stp-card.open { border-color: var(--orange); box-shadow: 0 6px 16px rgba(212, 114, 42, .15); }
+.stp-card.stp-done { border-color: var(--green); }
+
+.stp-head {
+  display: flex; align-items: center; gap: 11px; width: 100%; min-height: 64px;
+  padding: 12px 13px; background: none; border: 0; cursor: pointer;
+  font-family: inherit; text-align: left;
+  transition: background .15s, transform .08s;
+}
+.stp-head:active { transform: scale(.985); background: var(--amber-soft); }
+.stp-card.stp-done .stp-head:active { background: var(--green-soft); }
+
+/* chip de HORA grande — legibilidade no carro/canteiro */
+.stp-time {
+  flex: none; background: var(--warm-bg); color: var(--warm-light);
+  font-weight: 900; font-size: 15.5px; letter-spacing: .01em;
+  padding: 10px 11px; border-radius: 11px; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.stp-card.stp-done .stp-time { background: var(--green); }
+
+.stp-mid { flex: 1; min-width: 0; }
+.stp-nm { display: block; font-size: 15.5px; font-weight: 800; color: var(--ink); line-height: 1.25; }
+.stp-card.stp-done .stp-nm { color: #246b3c; }
+.stp-ad {
+  display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-soft);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;
+}
+
+/* anel de progresso da parada (feitos/total do grupo) */
+.stp-ring { position: relative; flex: none; width: 40px; height: 40px; }
+.stp-ring svg { width: 40px; height: 40px; transform: rotate(-90deg); display: block; }
+.stp-ring circle { fill: none; stroke-width: 3.5; }
+.stp-ring .rbg { stroke: var(--light-2); }
+.stp-ring .rfg { stroke: var(--green); stroke-linecap: round; transition: stroke-dashoffset .35s ease; }
+.stp-ring .rtx {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 10.5px; font-weight: 900; color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.stp-card.stp-done .rtx { color: var(--green); }
+
+.stp-chev { flex: none; color: var(--ink-faint); font-size: 16px; transition: transform .25s ease; }
+.stp-card.open .stp-chev { transform: rotate(180deg); }
+
+/* corpo do accordion — transicao suave (grid-rows 0fr -> 1fr + opacity) */
+.stp-body {
+  display: grid; grid-template-rows: 0fr; opacity: 0;
+  transition: grid-template-rows .3s ease, opacity .3s ease;
+}
+.stp-card.open .stp-body { grid-template-rows: 1fr; opacity: 1; }
+.stp-inner { overflow: hidden; min-height: 0; }
+.stp-pad { padding: 2px 12px 13px; }
+
+/* botoes grandes da parada: mapa (primario) + agenda (secundario) */
+.stp-map, .stp-cal {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  min-height: 52px; border-radius: 13px; text-decoration: none;
+  font-weight: 900; font-size: 15px; letter-spacing: .02em;
+  margin-bottom: 9px; transition: transform .08s, opacity .15s;
+}
+.stp-map:active, .stp-cal:active { transform: scale(.97); opacity: .9; }
+.stp-map { background: var(--orange); color: #fff; }
+.stp-cal { background: var(--card); border: 1.5px solid var(--orange); color: var(--warm-bg); }
+
+.stp-chk { margin-top: 3px; }
+
 /* ---------- MATERIAIS ---------- */
 .mat-list { display: flex; flex-direction: column; gap: 11px; }
 .mat-row { display: flex; gap: 11px; align-items: flex-start; font-size: 15px; font-weight: 600; }
@@ -788,6 +866,13 @@ window.IAC_CFG = {
    payments[]) — o unico dado financeiro permitido aqui, porque e o dinheiro
    DO PROPRIO SUB. Continua PROIBIDO: preco do cliente, margem, outros jobs.
    Idiomas: pt / en / es.
+
+   v3 — MODO ROTEIRO: se o checklist tiver itens '📍 ENDERECO N# — ...' (dia
+   de quotes do Edu), o dia vira PARADAS clicaveis (accordion): cartao com
+   hora + nome + endereco + anel de progresso; expandir mostra mapa, agenda e
+   o checklist DAQUELA parada. A persistencia NAO muda: cada item continua
+   gravando via wo_set_check pelo INDICE GLOBAL original (data-i). WOs sem
+   '📍 ENDERECO' renderizam EXATAMENTE como antes.
    ============================================================================ */
 (function () {
   var GUY = window.IAC_GUY, ICN = window.IAC_ICONS;
@@ -883,7 +968,8 @@ window.IAC_CFG = {
       completeStep: 'Concluir etapa de hoje',
       callBtn: 'LIGAR PRO ITALO', waBtn: 'WHATSAPP',
       addCal: 'ADICIONAR A MINHA AGENDA',
-      calDetails: 'Dúvida? Italo (848) 234-0283', calLink: 'Seu portal'
+      calDetails: 'Dúvida? Italo (848) 234-0283', calLink: 'Seu portal',
+      rtStop: 'Parada', rtDone: 'concluída'
     },
     en: {
       yourJob: 'Your job', scope: 'Scope of work', checklist: 'Checklist',
@@ -903,7 +989,8 @@ window.IAC_CFG = {
       completeStep: "Finish today's step",
       callBtn: 'CALL ITALO', waBtn: 'WHATSAPP',
       addCal: 'ADD TO MY CALENDAR',
-      calDetails: 'Questions? Italo (848) 234-0283', calLink: 'Your portal'
+      calDetails: 'Questions? Italo (848) 234-0283', calLink: 'Your portal',
+      rtStop: 'Stop', rtDone: 'done'
     },
     es: {
       yourJob: 'Tu trabajo', scope: 'Alcance del trabajo', checklist: 'Lista de tareas',
@@ -923,7 +1010,8 @@ window.IAC_CFG = {
       completeStep: 'Terminar la etapa de hoy',
       callBtn: 'LLAMAR A ITALO', waBtn: 'WHATSAPP',
       addCal: 'AGREGAR A MI CALENDARIO',
-      calDetails: '¿Dudas? Italo (848) 234-0283', calLink: 'Tu portal'
+      calDetails: '¿Dudas? Italo (848) 234-0283', calLink: 'Tu portal',
+      rtStop: 'Parada', rtDone: 'lista'
     }
   };
 
@@ -935,7 +1023,7 @@ window.IAC_CFG = {
   ];
 
   // estado
-  var W = null, TOKEN = null, T = null, lang = 'pt';
+  var W = null, TOKEN = null, T = null, lang = 'pt', RT = null;
 
   // RODAPE FIXO de contato — ligar / WhatsApp pro Italo (sub-safe, sem dado
   // financeiro). Recriado a cada troca de idioma pra traduzir os labels.
@@ -1023,17 +1111,20 @@ window.IAC_CFG = {
 
     // CHECKLIST — passos numerados grandes; o passo atual (primeiro nao
     // concluido) ganha destaque visual pra legibilidade no canteiro.
+    // MODO ROTEIRO: se houver itens '📍 ENDERECO N#', o dia vira paradas
+    // clicaveis (accordion). O progresso geral (X de Y) continua igual.
+    RT = parseRoteiro(W.checklist);
     if (W.checklist && W.checklist.length) {
       h += '<div class="section-title">' + ic('check', 15) + esc(T.checklist) + '</div>';
       h += '<div class="progress-bar"><i id="bar"></i></div>';
       h += '<div class="prog-label" id="prog"></div>';
-      h += '<div class="checklist" id="chk">' + W.checklist.map(function (c, i) {
-        return '<button class="chk' + (c.done ? ' done' : '') + '" data-i="' + i + '">' +
-          '<span class="num">' + (i + 1) + '</span>' +
-          '<span class="txt">' + linkify(c.item) +
-          '<span class="here">' + esc(T.currentStep) + '</span></span>' +
-          '<span class="box">' + ic('check', 18) + '</span></button>';
-      }).join('') + '</div>';
+      if (RT) {
+        h += roteiroHtml(RT);
+      } else {
+        h += '<div class="checklist" id="chk">' + W.checklist.map(function (c, i) {
+          return chkBtn({ c: c, i: i });
+        }).join('') + '</div>';
+      }
     }
 
     // MATERIAIS
@@ -1083,15 +1174,18 @@ window.IAC_CFG = {
   // Sem hora: evento de dia inteiro (YYYYMMDD/dia seguinte).
   // SUB-SAFE: detalhes = servico + contato do Italo + link deste portal.
   // NUNCA incluir valor de repasse, preco de cliente ou margem no evento.
-  function gcalUrl(addr) {
+  // opt (modo roteiro): { hora, title } — evento de UMA parada especifica.
+  function gcalUrl(addr, opt) {
+    opt = opt || {};
     if (!W || !W.data) return null;
     var d = new Date(W.data + 'T00:00:00');
     if (isNaN(d)) return null;
     function p2(n) { return String(n).padStart(2, '0'); }
     function ymd(dt) { return dt.getFullYear() + p2(dt.getMonth() + 1) + p2(dt.getDate()); }
 
+    var hora = ('hora' in opt) ? opt.hora : W.hora;
     var dates;
-    var hm = W.hora ? String(W.hora).match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i) : null;
+    var hm = hora ? String(hora).match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i) : null;
     if (hm) {
       var hh = parseInt(hm[1], 10);
       var mi = hm[2] ? parseInt(hm[2], 10) : 0;
@@ -1117,10 +1211,165 @@ window.IAC_CFG = {
       location.origin + location.pathname + '?t=' + encodeURIComponent(TOKEN);
 
     return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
-      '&text=' + encodeURIComponent('IAC: ' + svc) +
+      '&text=' + encodeURIComponent(opt.title ? String(opt.title).slice(0, 70) : 'IAC: ' + svc) +
       '&dates=' + dates +
       (addr ? '&location=' + encodeURIComponent(addr) : '') +
       '&details=' + encodeURIComponent(details);
+  }
+
+  // ==========================================================================
+  // MODO ROTEIRO — dia de quotes (ex: dia do Edu) vira PARADAS clicaveis.
+  // ==========================================================================
+
+  // circunferencia do anel de progresso (r=15.5 no viewBox 36x36)
+  var RING_C = 2 * Math.PI * 15.5;
+
+  // botao de item do checklist. ⚠️ data-i e SEMPRE o INDICE GLOBAL do item no
+  // W.checklist original — e ISSO que o wo_set_check persiste. No modo roteiro
+  // a posicao VISUAL muda (agrupada por parada), o indice NAO.
+  function chkBtn(it, label, pin) {
+    var c = it.c, i = it.i;
+    return '<button class="chk' + (c.done ? ' done' : '') + '" data-i="' + i + '">' +
+      '<span class="num">' + (pin ? '📍' : (i + 1)) + '</span>' +
+      '<span class="txt">' + (label ? esc(label) : linkify(c.item)) +
+      '<span class="here">' + esc(T.currentStep) + '</span></span>' +
+      '<span class="box">' + ic('check', 18) + '</span></button>';
+  }
+
+  // [RT-PARSE-START] — funcao PURA (testavel em node): agrupa o checklist
+  // plano em paradas. Devolve null se NAO for roteiro (nenhum '📍 ENDERECO').
+  //   { inicio:[{c,i}], stops:[{num,nome,hora,endereco,mapUrl,raw,header,items}], fim:[{c,i}] }
+  //   header/inicio/fim/items = { c: item original, i: INDICE GLOBAL }.
+  //   Itens antes do 1o 📍 = inicio do dia; cada 📍 abre um grupo; itens
+  //   FINAIS consecutivos comecando com ✅ = fim do dia. Parse tolerante do
+  //   header ('📍 ENDERECO N# — NOME (HORA): endereco — abrir no mapa: URL');
+  //   se nao casar, cai no texto cru (raw) sem quebrar nada.
+  function parseRoteiro(checklist) {
+    if (!checklist || !checklist.length) return null;
+    var HDR = /^📍\s*ENDERE[CÇ]O\s*(\d+)#/i;
+    var isRt = false;
+    for (var x = 0; x < checklist.length; x++) {
+      if (HDR.test(String(checklist[x].item || ''))) { isRt = true; break; }
+    }
+    if (!isRt) return null;
+
+    var items = checklist.map(function (c, i) { return { c: c, i: i }; });
+    // fim do dia: itens finais consecutivos que comecam com ✅
+    var fim = [];
+    while (items.length && /^✅/.test(String(items[items.length - 1].c.item || ''))) {
+      fim.unshift(items.pop());
+    }
+    var inicio = [], stops = [], cur = null;
+    items.forEach(function (it) {
+      var txt = String(it.c.item || '');
+      var m = txt.match(HDR);
+      if (m) {
+        cur = { num: m[1], nome: '', hora: '', endereco: '', mapUrl: '', raw: txt, header: it, items: [] };
+        var p = txt.match(/^📍\s*ENDERE[CÇ]O\s*\d+#\s*[—–-]+\s*(.+?)\s*\(([^)]+)\)\s*:\s*([\s\S]*)$/i);
+        if (p) {
+          cur.nome = p[1];
+          cur.hora = p[2];
+          var rest = p[3];
+          var u = rest.match(/(https?:\/\/\S+)/);
+          if (u) cur.mapUrl = u[1];
+          cur.endereco = rest
+            .replace(/[—–-]*\s*abrir\s+no\s+mapa:?\s*/i, ' ')
+            .replace(/https?:\/\/\S+/g, '')
+            .replace(/\s*[—–-]+\s*$/, '')
+            .trim();
+        }
+        stops.push(cur);
+      } else if (cur) {
+        cur.items.push(it);
+      } else {
+        inicio.push(it);
+      }
+    });
+    return { inicio: inicio, stops: stops, fim: fim };
+  }
+  // [RT-PARSE-END]
+
+  function stopGroup(s) { return [s.header].concat(s.items); }
+
+  function roteiroHtml(rt) {
+    // primeira parada NAO totalmente concluida comeca EXPANDIDA
+    var openIdx = -1;
+    for (var k = 0; k < rt.stops.length; k++) {
+      var pend = stopGroup(rt.stops[k]).some(function (it) { return !it.c.done; });
+      if (pend) { openIdx = k; break; }
+    }
+    var h = '';
+    if (rt.inicio.length) {
+      h += '<div class="checklist stp-loose">' +
+        rt.inicio.map(function (it) { return chkBtn(it); }).join('') + '</div>';
+    }
+    h += '<div class="stp-wrap">' +
+      rt.stops.map(function (s, k) { return stopCard(s, k, k === openIdx); }).join('') + '</div>';
+    if (rt.fim.length) {
+      h += '<div class="checklist stp-loose">' +
+        rt.fim.map(function (it) { return chkBtn(it); }).join('') + '</div>';
+    }
+    return h;
+  }
+
+  // cartao de UMA parada (accordion). Fechado: hora + nome + endereco + anel.
+  // Expandido: botao de mapa, botao de agenda e o checklist DAQUELA parada
+  // (mesmos itens tocaveis, data-i = indice global). O proprio item 📍 vira o
+  // checkbox 'parada concluida' no fim do grupo.
+  function stopCard(s, k, open) {
+    var grp = stopGroup(s);
+    var done = grp.filter(function (it) { return it.c.done; }).length;
+    var total = grp.length;
+    var nome = s.nome || s.raw.replace(/^📍\s*/, '');
+    var full = done >= total;
+
+    var h = '<div class="stp-card' + (full ? ' stp-done' : '') + (open ? ' open' : '') + '" data-stp="' + k + '">';
+    h += '<button type="button" class="stp-head">' +
+      '<span class="stp-time">' + esc(s.hora || '—') + '</span>' +
+      '<span class="stp-mid"><span class="stp-nm">' + esc((s.num ? s.num + '# — ' : '') + nome) + '</span>' +
+      (s.endereco ? '<span class="stp-ad">' + esc(s.endereco) + '</span>' : '') +
+      '</span>' +
+      '<span class="stp-ring"><svg viewBox="0 0 36 36" aria-hidden="true">' +
+      '<circle class="rbg" cx="18" cy="18" r="15.5"></circle>' +
+      '<circle class="rfg" cx="18" cy="18" r="15.5" stroke-dasharray="' + RING_C.toFixed(1) +
+      '" stroke-dashoffset="' + (RING_C * (1 - done / total)).toFixed(1) + '"></circle></svg>' +
+      '<span class="rtx">' + done + '/' + total + '</span></span>' +
+      '<span class="stp-chev">▾</span></button>';
+
+    h += '<div class="stp-body"><div class="stp-inner"><div class="stp-pad">';
+    var map = s.mapUrl || (s.endereco ? 'https://maps.google.com/?q=' + encodeURIComponent(s.endereco) : '');
+    if (map) {
+      h += '<a class="stp-map" href="' + esc(map) + '" target="_blank" rel="noopener">🗺️ ' +
+        esc(T.map).toUpperCase() + '</a>';
+    }
+    var cal = (W.data && s.hora) ? gcalUrl(s.endereco, { hora: s.hora, title: 'IAC: ' + nome }) : null;
+    if (cal) {
+      h += '<a class="stp-cal" href="' + esc(cal) + '" target="_blank" rel="noopener">📅 ' +
+        esc(T.addCal) + '</a>';
+    }
+    h += '<div class="checklist stp-chk">' +
+      s.items.map(function (it) { return chkBtn(it); }).join('') +
+      chkBtn(s.header, '📍 ' + T.rtStop + ' ' + s.num + '# ' + T.rtDone, true) +
+      '</div>';
+    h += '</div></div></div></div>';
+    return h;
+  }
+
+  // atualiza anel + estado 'concluida' de cada parada (chamado a cada toque)
+  function updateStops() {
+    if (!RT) return;
+    RT.stops.forEach(function (s, k) {
+      var card = view.querySelector('.stp-card[data-stp="' + k + '"]');
+      if (!card) return;
+      var grp = stopGroup(s);
+      var done = grp.filter(function (it) { return it.c.done; }).length;
+      var total = grp.length;
+      var fg = card.querySelector('.rfg');
+      if (fg) fg.style.strokeDashoffset = (RING_C * (1 - done / total)).toFixed(1);
+      var tx = card.querySelector('.rtx');
+      if (tx) tx.textContent = done + '/' + total;
+      card.classList.toggle('stp-done', done >= total);
+    });
   }
 
   // Card de pagamento DO SUB: valor_repasse / pago_ao_sub / payments[].
@@ -1179,31 +1428,38 @@ window.IAC_CFG = {
   }
 
   function bind() {
-    // CHECKLIST — persiste cada toque via gSetCheck
-    var chk = document.getElementById('chk');
-    if (chk) {
-      chk.querySelectorAll('.chk').forEach(function (b) {
-        b.onclick = async function () {
-          var i = +b.getAttribute('data-i');
-          var item = W.checklist[i];
-          var next = !item.done;
-          // otimista
-          item.done = next;
-          b.classList.toggle('done', next);
+    // CHECKLIST — persiste cada toque via gSetCheck. Busca no VIEW inteiro:
+    // funciona no modo normal (#chk) E no modo roteiro (.chk dentro das
+    // paradas). ⚠️ data-i = INDICE GLOBAL no W.checklist — persistencia
+    // identica nos dois modos (wo_set_check via item.id).
+    view.querySelectorAll('.chk').forEach(function (b) {
+      b.onclick = async function () {
+        var i = +b.getAttribute('data-i');
+        var item = W.checklist[i];
+        var next = !item.done;
+        // otimista
+        item.done = next;
+        b.classList.toggle('done', next);
+        updateProgress();
+        b.setAttribute('disabled', '');
+        var r = await GUY.gSetCheck(TOKEN, item.id, next);
+        b.removeAttribute('disabled');
+        if (r.error || r.data === false) {
+          // reverte
+          item.done = !next;
+          b.classList.toggle('done', item.done);
           updateProgress();
-          b.setAttribute('disabled', '');
-          var r = await GUY.gSetCheck(TOKEN, item.id, next);
-          b.removeAttribute('disabled');
-          if (r.error || r.data === false) {
-            // reverte
-            item.done = !next;
-            b.classList.toggle('done', item.done);
-            updateProgress();
-            toast(T.saveErr, true);
-          }
-        };
-      });
-    }
+          toast(T.saveErr, true);
+        }
+      };
+    });
+
+    // MODO ROTEIRO — abre/fecha o cartao da parada (accordion)
+    view.querySelectorAll('.stp-head').forEach(function (hd) {
+      hd.onclick = function () {
+        hd.parentNode.classList.toggle('open');
+      };
+    });
 
     // UPLOADS — sobem de verdade via gUpload
     view.querySelectorAll('input[data-up]').forEach(function (inp) {
@@ -1288,18 +1544,20 @@ window.IAC_CFG = {
     var prog = document.getElementById('prog');
     if (bar) bar.style.width = Math.round((done / total) * 100) + '%';
     if (prog) prog.textContent = done + ' ' + T.done + ' ' + total;
+    updateStops();
     updateCurrent();
   }
 
   // destaca o passo ATUAL: primeiro item do checklist ainda nao concluido
+  // (view inteiro — funciona no modo normal e no modo roteiro)
   function updateCurrent() {
-    var chk = document.getElementById('chk');
-    if (!chk) return;
+    var btns = view.querySelectorAll('.chk');
+    if (!btns.length) return;
     var curIdx = -1;
     for (var i = 0; i < W.checklist.length; i++) {
       if (!W.checklist[i].done) { curIdx = i; break; }
     }
-    chk.querySelectorAll('.chk').forEach(function (b) {
+    btns.forEach(function (b) {
       b.classList.toggle('current', +b.getAttribute('data-i') === curIdx);
     });
   }
