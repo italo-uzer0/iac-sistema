@@ -312,23 +312,25 @@
     var chkPendentes = autoProposal.length + autoFollow.length +
       manuais.filter(function (t) { return !t.done; }).length;
 
-    /* --- topo / saudacao --- */
+    /* --- topo / saudacao (numeros animam com A.countUp via [data-cu]) --- */
     var h = new Date(), hora = h.getHours();
     var saud = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
-    var resumo = chkPendentes + ' na lista de hoje' +
-      ' · ' + orcamentos.length + ' visita' + (orcamentos.length === 1 ? '' : 's') +
-      ' · ' + naRua.length + ' sub' + (naRua.length === 1 ? '' : 's') + ' na rua' +
-      ' · ' + A.money(totalPagar) + ' a pagar';
+    function cuNum(v) { return '<b data-cu="' + Number(v || 0) + '">' + Number(v || 0) + '</b>'; }
+    function cuMoney(v) { return '<b data-cu="' + Number(v || 0) + '" data-cu-pre="$">' + A.esc(A.money(v)) + '</b>'; }
 
     var html =
       '<div class="dia-hero">' +
       '<div class="dia-hi">☀️ ' + A.esc(saud) + ', Italo</div>' +
       '<div class="dia-date">' + A.esc(A.fmtDataDia(hojeISO)) + '</div>' +
-      '<div class="dia-sum">' + A.esc(resumo) + '</div>' +
+      '<div class="dia-sum">' +
+      cuNum(chkPendentes) + ' na lista de hoje' +
+      ' · ' + cuNum(orcamentos.length) + ' visita' + (orcamentos.length === 1 ? '' : 's') +
+      ' · ' + cuNum(naRua.length) + ' sub' + (naRua.length === 1 ? '' : 's') + ' na rua' +
+      ' · ' + cuMoney(totalPagar) + ' a pagar</div>' +
       (fuVencidos.length
-        ? '<div class="dia-sum" style="margin-top:4px;font-weight:700">🔥 ' + fuVencidos.length +
+        ? '<div class="dia-sum" style="margin-top:4px;font-weight:700">🔥 ' + cuNum(fuVencidos.length) +
           ' follow-up' + (fuVencidos.length === 1 ? '' : 's') + ' vencido' + (fuVencidos.length === 1 ? '' : 's') +
-          ' · ' + A.esc(A.money(fuParado)) + ' parados</div>'
+          ' · ' + cuMoney(fuParado) + ' parados</div>'
         : '') +
       '</div>';
 
@@ -440,6 +442,10 @@
     html += '</div>';
 
     root.innerHTML = html;
+    // hero vivo: numeros sobem animados (respeita prefers-reduced-motion no core)
+    root.querySelectorAll('[data-cu]').forEach(function (el) {
+      A.countUp(el, Number(el.getAttribute('data-cu')), el.getAttribute('data-cu-pre') || '');
+    });
     ligarEventos(root);
   }
 
@@ -839,8 +845,8 @@
 
   /* ================================================ BLOCOS DE UI =========== */
   function secaoHead(key, titulo, count, sub) {
-    return '<div class="grp-h" data-toggle="' + key + '">' +
-      A.esc(titulo) + ' <span class="count">' + count + '</span>' +
+    return '<div class="grp-h ds-section-h" data-toggle="' + key + '">' +
+      A.esc(titulo) + ' <span class="count ds-n">' + count + '</span>' +
       (sub ? '<span class="dia-sec-sub">' + A.esc(sub) + '</span>' : '') +
       '<span class="arr">' + (aberto[key] ? '▲ recolher' : '▼ abrir') + '</span></div>';
   }
@@ -966,10 +972,12 @@
       pessoal: '<span class="badge">pessoal</span>',
       outro: '<span class="badge">agenda</span>' }[p.tipo] || '';
     var chkAberto = !!chkStopAberto[p.id];
-    var html = '<div class="card dia-card' + (p.done ? ' done' : '') + '">' +
+    // chip de HORA grande no padrao .ds-chip-day (cor do dia de hoje; cinza se feita/sem hora)
+    var chipCls = (p.done || !p.hora) ? 'semdata' : 'd' + new Date().getDay();
+    var html = '<div class="card dia-card ds-card' + (p.done ? ' done' : '') + '">' +
       '<div class="dia-card-top">' +
-      '<div class="dia-nm"><span class="dia-rt-hora">' + A.esc(horaLabel(p.hora)) +
-      (p.horaFim ? '<span class="dia-rt-fim"> – ' + A.esc(horaLabel(p.horaFim)) + '</span>' : '') + '</span></div>' +
+      '<div class="dia-nm"><span class="ds-chip-day ' + chipCls + '" style="font-size:16px;padding:6px 13px">⏰ ' + A.esc(horaLabel(p.hora)) +
+      (p.horaFim ? ' – ' + A.esc(horaLabel(p.horaFim)) : '') + '</span></div>' +
       tipoBadge +
       '</div>' +
       '<div class="dia-sv" style="font-weight:600">' + (p.done ? '✅ ' : '') + A.esc(p.titulo) + '</div>' +
@@ -1077,7 +1085,11 @@
       '<span class="badge">agenda</span></div>';
   }
   function blocoSemanaDia(d) {
-    var head = '<div class="dia-sem-dia' + (d.hoje ? ' hoje' : '') + '">' + A.esc(d.label) +
+    // chip de dia colorido (padrao .ds-chip-day das WOs): hoje = laranja, resto = cor do dia da semana
+    var dw = A.parseISO(d.iso);
+    var chipCls = d.hoje ? 'hoje' : 'd' + (dw ? dw.getDay() : 0);
+    var head = '<div class="dia-sem-dia' + (d.hoje ? ' hoje' : '') + '">' +
+      '<span class="ds-chip-day ' + chipCls + '" style="font-size:11.5px;padding:3px 10px">' + A.esc(d.label) + '</span>' +
       (d.itens.length ? '<span class="dia-sem-n">' + d.itens.length + '</span>' : '') + '</div>';
     if (!d.itens.length) return head + '<div class="dia-sem-row livre">livre</div>';
     return head + d.itens.map(linhaSemana).join('');
@@ -1092,7 +1104,7 @@
         (ehHoje(j.data_visita) ? ' · HOJE' : atrasada ? ' · atrasada' : '') + '</span>'
       : '<span class="dia-visita sem">sem data de visita</span>';
     var guia = guiaVisita(j.tipo_servico);
-    return '<div class="card dia-card">' +
+    return '<div class="card dia-card ds-card">' +
       '<div class="dia-card-top">' +
       '<div class="dia-nm">' + A.esc(j.cliente || '(sem nome)') +
       ' <span class="badge warm">' + A.esc(j.status || '') + '</span></div>' +
@@ -1126,7 +1138,7 @@
   /* ---- SECAO 2: card sub na rua ---- */
   function cardRua(w) {
     var hojeTag = ehHoje(w.data) ? '<span class="badge orange">HOJE</span> ' : '';
-    return '<div class="card dia-card">' +
+    return '<div class="card dia-card ds-card">' +
       '<div class="dia-card-top">' +
       '<div class="dia-nm">' + A.esc(w.cliente || '—') +
       ' <span class="muted" style="font-weight:500">· ' + A.esc(A.subNome(w.sub_id)) + '</span></div>' +
@@ -1218,11 +1230,15 @@
   function cardEstimate(j) {
     var dias = diasDesde(j.created_at);
     var nivel = Number(j.followup_nivel || 0);
-    return '<div class="card dia-card dia-card-sm">' +
+    // vencido ha 14+ dias => pulso discreto (dinheiro esfriando na mesa)
+    var atraso = j.followup_em ? diasDesde(j.followup_em) : (dias !== null ? dias - 3 : null);
+    var pulso = (atraso !== null && atraso >= 14)
+      ? ' <span class="ds-pulse red" style="font-size:10px;padding:3px 9px">' + atraso + 'd vencido</span>' : '';
+    return '<div class="card dia-card ds-card dia-card-sm">' +
       '<div class="dia-card-top">' +
       '<div class="dia-nm" style="font-size:14.5px">' + A.esc(j.cliente || '(sem nome)') +
       (j.valor_total !== null && j.valor_total !== undefined
-        ? ' <b style="color:var(--green)">' + A.esc(A.money(j.valor_total)) + '</b>' : '') + '</div>' +
+        ? ' <b style="color:var(--green)">' + A.esc(A.money(j.valor_total)) + '</b>' : '') + pulso + '</div>' +
       (dias !== null ? '<span class="muted" style="font-size:12px;white-space:nowrap">estimate ha ' + dias + 'd</span>' : '') +
       '</div>' +
       '<div class="dia-sv" style="margin:2px 0">' + A.icon(window.IAC_ICONS.forService(j.tipo_servico), 14) + ' ' +
@@ -1372,7 +1388,7 @@
       : 'tudo em dia';
 
     var html = '<div class="pv-panel">' +
-      '<div class="grp-h pv-head" data-toggle="pv">⚠️ Precisa de voce' +
+      '<div class="grp-h ds-section-h pv-head" data-toggle="pv">⚠️ Precisa de voce' +
       ' <span class="count pv-count">' + totalItens + '</span>' +
       '<span class="dia-sec-sub">' + A.esc(sub) + '</span>' +
       '<span class="arr">' + (aberto.pv ? '▲ recolher' : '▼ abrir') + '</span></div>';
@@ -1402,7 +1418,7 @@
 
   function pvItemCobrar(it) {
     var c = it.c, j = it.job;
-    return '<div class="pv-item receber"' + (j ? ' data-abrir-job="' + A.esc(j.id) + '"' : '') + '>' +
+    return '<div class="pv-item receber ds-card" style="border-left-width:6px"' + (j ? ' data-abrir-job="' + A.esc(j.id) + '"' : '') + '>' +
       '<div class="pv-main">' +
       '<div class="pv-t1">' + A.esc(c.cliente || (j && j.cliente) || '—') +
       (j && j.status ? ' <span class="badge warm">' + A.esc(j.status) + '</span>' : '') +
@@ -1419,7 +1435,7 @@
     var attr = it.woId ? ' data-abrir-wo="' + A.esc(it.woId) + '"'
       : it.jobId ? ' data-abrir-job="' + A.esc(it.jobId) + '"' : '';
     var semW9 = it.subObj && it.subObj.w9 === false;
-    return '<div class="pv-item pagar"' + attr + '>' +
+    return '<div class="pv-item pagar ds-card" style="border-left-width:6px"' + attr + '>' +
       '<div class="pv-main">' +
       '<div class="pv-t1">' + A.esc(it.sub || 'sub') +
       (semW9 ? ' <span class="badge red">⚠ SEM W9</span>' : '') +
@@ -1432,7 +1448,7 @@
   }
 
   function pvItemW9(x) {
-    return '<div class="pv-item w9">' +
+    return '<div class="pv-item w9 ds-card" style="border-left-width:6px">' +
       '<div class="pv-main">' +
       '<div class="pv-t1"><span class="badge red">⚠ SEM W9</span> ' + A.esc(x.sub.nome || x.sub.id) + '</div>' +
       '<div class="pv-t2">repasse pendente — cobrar o W9 ANTES de pagar</div>' +
