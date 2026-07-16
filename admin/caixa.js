@@ -59,6 +59,30 @@
     return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
   }
 
+  /* ---------- helpers do design system vivo (.ds-*) ---------- */
+  function dsBar(pct, cls) {
+    var p = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+    return '<div class="ds-bar' + (cls ? ' ' + cls : '') + '"><i data-dsw="' + p + '"></i></div>';
+  }
+  function animarBarras(scope) {
+    if (!scope) return;
+    var els = scope.querySelectorAll('[data-dsw]');
+    if (!els.length) return;
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        els.forEach(function (i) { i.style.width = i.getAttribute('data-dsw') + '%'; });
+      });
+    });
+  }
+  function cuAll(scope) {
+    if (!scope) return;
+    scope.querySelectorAll('[data-cu]').forEach(function (el) {
+      var v = Number(el.getAttribute('data-cu') || 0);
+      if (v < 0) A.countUp(el, Math.abs(v), '−$');
+      else A.countUp(el, v, '$');
+    });
+  }
+
   A.pages.caixa = {
     render: function (root) {
       var ano = A.hoje().slice(0, 4);
@@ -105,8 +129,9 @@
       return true;
     }
 
-    function stat(lbl, val, cls, sub) {
-      return '<div class="stat"><div class="lbl">' + A.esc(lbl) + '</div><div class="val ' + (cls || '') + '">' + A.esc(val) + '</div>' +
+    function stat(lbl, val, cls, sub, cu) {
+      return '<div class="stat"><div class="lbl">' + A.esc(lbl) + '</div><div class="val ' + (cls || '') + '"' +
+        (cu !== undefined && cu !== null ? ' data-cu="' + Number(cu) + '"' : '') + '>' + A.esc(val) + '</div>' +
         (sub ? '<div class="sub">' + A.esc(sub) + '</div>' : '') + '</div>';
     }
 
@@ -118,10 +143,13 @@
         b.classList.toggle('active', b.getAttribute('data-cx3tab') === cxTab);
       });
       var body = document.getElementById('cx3-body');
+      body.classList.remove('page-enter');
+      void body.offsetWidth; // reflow pra retrigar a animacao
       body.innerHTML = '';
       if (cxTab === 'hold') renderHold(body);
       else if (cxTab === 'fixas') renderFixas(body);
       else renderReal(body);
+      body.classList.add('page-enter');
     }
     root.querySelectorAll('[data-cx3tab]').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -140,6 +168,11 @@
     function renderReal(body) {
       body.innerHTML =
         '<div class="stat-grid" id="cx-stats"></div>' +
+        '<div class="card ds-card" id="cx-be" style="display:none">' +
+        '<div class="ds-section-h" style="margin-bottom:8px">🎯 Break-even do mes <span class="ds-n" id="cx-be-pct"></span></div>' +
+        '<div class="ds-bar" id="cx-be-bar"><i></i></div>' +
+        '<div class="muted" id="cx-be-txt" style="font-size:11px;margin-top:6px"></div>' +
+        '</div>' +
         '<div class="card" id="cx-form-card" style="display:none"></div>' +
         '<div class="filters">' +
         '<input type="search" id="cxf-busca" placeholder="Buscar cliente, descricao…" value="' + A.esc(fF.busca) + '" />' +
@@ -176,10 +209,12 @@
         });
         var saldo = receb - repPago - desp;
         document.getElementById('cx-stats').innerHTML =
-          stat('Recebido', A.money(receb), 'green', 'so jobs fechados') +
-          stat('A receber', A.money(aReceber), 'orange', 'pendente de fechados') +
-          stat('A pagar subs', A.money(repDevido), 'red', 'repasses pagos: ' + A.money(repPago)) +
-          stat('Saldo real', A.money(saldo), saldo >= 0 ? 'green' : 'red', 'despesas pagas: ' + A.money(desp));
+          stat('Recebido', A.money(receb), 'green', 'so jobs fechados', receb) +
+          stat('A receber', A.money(aReceber), 'orange', 'pendente de fechados', aReceber) +
+          stat('A pagar subs', A.money(repDevido), 'red', 'repasses pagos: ' + A.money(repPago), repDevido) +
+          stat('Saldo real', A.money(saldo), saldo >= 0 ? 'green' : 'red', 'despesas pagas: ' + A.money(desp), saldo);
+        cuAll(document.getElementById('cx-stats'));
+        atualizarBreakEven();
 
         var box = document.getElementById('cx-lista');
         if (!vis.length) {
@@ -220,6 +255,31 @@
             abrirForm(vis[Number(btn.getAttribute('data-cx-ed'))]);
           });
         });
+      }
+
+      /* ---------------- break-even do mes (recebido vs contas fixas) ---------------- */
+      function atualizarBreakEven() {
+        var card = document.getElementById('cx-be');
+        if (!card) return;
+        var fixoMes = 0;
+        contas.forEach(function (c) { fixoMes += mensalEsperado(c); });
+        if (!(fixoMes > 0)) { card.style.display = 'none'; return; }
+        var mes = mesAtual(), recMes = 0;
+        rows.forEach(function (r) {
+          if (r.tipo === 'entrada' && r.status !== 'pendente' &&
+            String(r.data || '').slice(0, 7) === mes && ehRealRow(r)) recMes += Number(r.valor || 0);
+        });
+        var pct = Math.min(100, Math.round(recMes / fixoMes * 100));
+        card.style.display = '';
+        document.getElementById('cx-be-pct').textContent = pct + '%';
+        var bar = document.getElementById('cx-be-bar');
+        bar.className = 'ds-bar' + (pct >= 100 ? ' green' : (pct < 50 ? ' red' : ''));
+        requestAnimationFrame(function () {
+          if (bar.firstElementChild) bar.firstElementChild.style.width = pct + '%';
+        });
+        document.getElementById('cx-be-txt').textContent =
+          'Recebido ' + A.money(recMes) + ' em ' + nomeMes(mes) + ' · contas fixas ' + A.money(fixoMes) + '/mes' +
+          (pct >= 100 ? ' · break-even BATIDO' : ' · falta ' + A.money(Math.max(0, fixoMes - recMes)));
       }
 
       /* ---------------- form add/edit ---------------- */
@@ -313,12 +373,12 @@
           return ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][mm] || m.mes;
         });
         qboBox.innerHTML =
-          '<h3>' + A.icon('caixa', 18) + ' QuickBooks (P&amp;L ' + A.esc(((dados.periodo || {}).inicio || '').slice(0, 4)) + ')</h3>' +
+          '<div class="ds-section-h">' + A.icon('caixa', 18) + ' QuickBooks <span class="ds-n">P&amp;L ' + A.esc(((dados.periodo || {}).inicio || '').slice(0, 4)) + '</span></div>' +
           '<div class="stat-grid">' +
-          stat('Receita', A.money(res.receita_total), 'green') +
-          stat('Lucro bruto', A.money(res.lucro_bruto), 'green') +
-          stat('Despesas', A.money(res.despesas_totais), 'red') +
-          stat('Resultado', A.money(res.resultado_liquido), Number(res.resultado_liquido || 0) >= 0 ? 'green' : 'red') +
+          stat('Receita', A.money(res.receita_total), 'green', null, Number(res.receita_total || 0)) +
+          stat('Lucro bruto', A.money(res.lucro_bruto), 'green', null, Number(res.lucro_bruto || 0)) +
+          stat('Despesas', A.money(res.despesas_totais), 'red', null, Number(res.despesas_totais || 0)) +
+          stat('Resultado', A.money(res.resultado_liquido), Number(res.resultado_liquido || 0) >= 0 ? 'green' : 'red', null, Number(res.resultado_liquido || 0)) +
           '</div>' +
           ((dados.mensal || []).length ? A.chartBarras(labels, [
             { label: 'Receita', cor: '#3f8f5b', valores: dados.mensal.map(function (m) { return Number(m.receita || 0); }) },
@@ -327,6 +387,7 @@
           ]) : '') +
           '<div class="muted" style="margin-top:8px">Ultimo update do snapshot: <b>' + A.esc(qbo.atualizado || '—') + '</b>' +
           (dados._nota || qbo.nota ? ' · ' + A.esc(dados._nota || qbo.nota) : '') + '</div>';
+        cuAll(qboBox);
       }
 
       aplicar();
@@ -345,9 +406,9 @@
       hold.sort(function (a, b) { return Number(b.valor_total || 0) - Number(a.valor_total || 0); });
 
       var html =
-        '<div class="card cx3-hero">' +
+        '<div class="card ds-hero cx3-hero">' +
         '<div class="lbl">⏳ Dinheiro em hold (nao fechou ainda)</div>' +
-        '<div class="big">Em hold: ' + A.esc(A.money(total)) + ' em ' + hold.length + ' orcamento' + (hold.length === 1 ? '' : 's') + '</div>' +
+        '<div class="big"><span data-cu="' + Number(total) + '">' + A.esc(A.money(total)) + '</span> em ' + hold.length + ' orcamento' + (hold.length === 1 ? '' : 's') + '</div>' +
         '<div class="sub">Jobs em Lead / Visita / Estimate Enviado. NAO mistura com o caixa Real.' +
         (semValor ? ' · <b>' + semValor + ' sem valor definido</b>' : '') + '</div>' +
         '</div>';
@@ -355,12 +416,16 @@
       if (!hold.length) {
         html += '<div class="card">' + A.empty('Nada em hold', 'Nenhum orcamento parado no funil agora.', 'jobs') + '</div>';
       } else {
+        html += '<div class="ds-section-h">📋 Orcamentos parados <span class="ds-n">' + hold.length + '</span></div>';
         html += '<div class="card">' + hold.map(function (j) {
           var dias = diasDesde(j.created_at);
-          var stCls = j.status === 'Estimate Enviado' ? 'orange' : (j.status === 'Lead' ? 'red' : '');
-          return '<a class="li-row cx3-link" href="#/jobs/' + A.esc(j.id) + '">' +
-            '<div class="main"><div class="t1">' + A.esc(j.cliente || j.id) + '</div>' +
-            '<div class="t2"><span class="badge ' + stCls + '" style="font-size:10px;padding:1px 7px">' + A.esc(j.status) + '</span>' +
+          var chip = j.status === 'Estimate Enviado' ? 'orange' : (j.status === 'Lead' ? 'red' : 'warm');
+          var frio = dias !== null && dias >= 21;
+          return '<a class="li-row ds-card cx3-link" href="#/jobs/' + A.esc(j.id) + '">' +
+            '<div class="main"><div class="t1">' + A.esc(j.cliente || j.id) +
+            (frio ? ' <span class="ds-pulse red" style="font-size:10px;padding:2px 9px">PARADO ' + dias + 'D</span>' : '') +
+            '</div>' +
+            '<div class="t2"><span class="ds-chip ' + chip + '" style="font-size:10.5px;padding:2px 9px">' + A.esc(j.status) + '</span>' +
             (j.tipo_servico ? ' · ' + A.esc(j.tipo_servico) : '') +
             (dias !== null ? ' · parado ha ' + dias + ' dia' + (dias === 1 ? '' : 's') : '') +
             '</div></div>' +
@@ -370,6 +435,7 @@
         }).join('') + '</div>';
       }
       body.innerHTML = html;
+      cuAll(body);
     }
 
     /* ==================================================================== */
@@ -403,11 +469,11 @@
 
       var html =
         '<div class="stat-grid">' +
-        stat('Total fixo — ' + nomeMes(mes), A.money(totalEsperado), '', totalReembolso ? 'reembolsos esperados: ' + A.money(totalReembolso) : '') +
-        stat('Ja pago no mes', A.money(totalPago), 'green', pct + '% do total') +
-        stat('Falta pagar', A.money(Math.max(0, totalEsperado - totalPago)), (totalEsperado - totalPago) > 0 ? 'red' : 'green') +
+        stat('Total fixo — ' + nomeMes(mes), A.money(totalEsperado), '', totalReembolso ? 'reembolsos esperados: ' + A.money(totalReembolso) : '', totalEsperado) +
+        stat('Ja pago no mes', A.money(totalPago), 'green', pct + '% do total', totalPago) +
+        stat('Falta pagar', A.money(Math.max(0, totalEsperado - totalPago)), (totalEsperado - totalPago) > 0 ? 'red' : 'green', null, Math.max(0, totalEsperado - totalPago)) +
         '</div>' +
-        '<div class="card"><div class="pbar"><i style="width:' + pct + '%"></i></div>' +
+        '<div class="card ds-card">' + dsBar(pct, pct >= 100 ? 'green' : '') +
         '<div class="muted" style="font-size:11px;margin-top:6px">' + pct + '% das contas fixas de ' + A.esc(nomeMes(mes)) + ' pagas</div></div>';
 
       /* -------- cartao de credito -------- */
@@ -416,13 +482,13 @@
         var abatido = Math.max(0, CARTAO_DIVIDA_INICIAL - saldo);
         var pctCard = Math.min(100, Math.max(0, Math.round(abatido / CARTAO_DIVIDA_INICIAL * 100)));
         html +=
-          '<div class="card cx3-cartao">' +
-          '<h3>💳 Cartao de credito (divida)</h3>' +
+          '<div class="card ds-card cx3-cartao">' +
+          '<div class="ds-section-h">💳 Cartao de credito <span class="ds-n">' + pctCard + '% abatido</span></div>' +
           '<div class="stat-grid">' +
-          stat('Saldo devedor', A.money(saldo), 'red', 'atualizado: ' + A.esc(A.fmtData(cartao.atualizado))) +
-          stat('Alvo semanal', A.money(cartao.pagamento_semanal_alvo), 'orange', 'pagamento por semana') +
+          stat('Saldo devedor', A.money(saldo), 'red', 'atualizado: ' + A.fmtData(cartao.atualizado), saldo) +
+          stat('Alvo semanal', A.money(cartao.pagamento_semanal_alvo), 'orange', 'pagamento por semana', Number(cartao.pagamento_semanal_alvo || 0)) +
           '</div>' +
-          '<div class="pbar"><i style="width:' + pctCard + '%;background:var(--orange)"></i></div>' +
+          dsBar(pctCard) +
           '<div class="muted" style="font-size:11px;margin:6px 0 10px">Ja abatido ' + A.esc(A.money(abatido)) + ' de ' + A.esc(A.money(CARTAO_DIVIDA_INICIAL)) + ' (' + pctCard + '%)</div>' +
           (cartao.obs ? '<div class="muted" style="font-size:11px;margin-bottom:10px">' + A.esc(cartao.obs) + '</div>' : '') +
           '<button class="btn sm" id="cx3-pagar-cartao">💵 Registrar pagamento</button>' +
@@ -433,17 +499,17 @@
       if (reserva) {
         var pctRes = reservaMeta > 0 ? Math.min(100, Math.round(reservaAno / reservaMeta * 100)) : 0;
         html +=
-          '<div class="card cx3-reserva">' +
-          '<h3>🐷 Reserva TAX ' + A.esc(ano) + '</h3>' +
-          '<div class="cx3-reserva-big">' + A.esc(A.money(reservaAno)) + ' <span class="muted" style="font-size:13px;font-weight:600">separado no ano' +
+          '<div class="card ds-card cx3-reserva">' +
+          '<div class="ds-section-h gold">🐷 Reserva TAX ' + A.esc(ano) + ' <span class="ds-n">' + pctRes + '%</span></div>' +
+          '<div class="cx3-reserva-big"><span data-cu="' + Number(reservaAno) + '">' + A.esc(A.money(reservaAno)) + '</span> <span class="muted" style="font-size:13px;font-weight:600">separado no ano' +
           (reservaMeta ? ' · meta ' + A.esc(A.money(reservaMeta)) : '') + '</span></div>' +
-          '<div class="pbar" style="margin-top:8px"><i style="width:' + pctRes + '%"></i></div>' +
+          '<div style="margin-top:8px">' + dsBar(pctRes, 'green') + '</div>' +
           (reserva.obs ? '<div class="muted" style="font-size:11px;margin-top:6px">' + A.esc(reserva.obs) + '</div>' : '') +
           '</div>';
       }
 
       /* -------- lista de contas do mes -------- */
-      html += '<div class="card"><h3>🏦 Contas de ' + A.esc(nomeMes(mes)) + '</h3>' +
+      html += '<div class="card"><div class="ds-section-h">🏦 Contas de ' + A.esc(nomeMes(mes)) + ' <span class="ds-n">' + contas.length + '</span></div>' +
         (contas.length ? contas.map(function (c, i) {
           var esperado = mensalEsperado(c);
           var pago = pagoPorConta[c.id] || 0;
@@ -472,7 +538,7 @@
       if (pagosMes.length) {
         var contaById = {};
         contas.forEach(function (c) { contaById[c.id] = c; });
-        html += '<div class="card"><h3>🧾 Pagamentos do mes</h3>' +
+        html += '<div class="card"><div class="ds-section-h">🧾 Pagamentos do mes <span class="ds-n">' + pagosMes.length + '</span></div>' +
           pagosMes.map(function (p) {
             var c = contaById[p.conta_id];
             return '<div class="li-row">' +
@@ -484,6 +550,8 @@
       }
 
       body.innerHTML = html;
+      animarBarras(body);
+      cuAll(body);
 
       /* -------- acoes -------- */
       body.querySelectorAll('[data-cx3-pagar]').forEach(function (btn) {
@@ -509,6 +577,7 @@
                 if (r2.error) throw r2.error;
                 rows.unshift(r2.data);
                 A.toast('Pagamento registrado', 'ok');
+                if (totalEsperado > 0 && totalPago < totalEsperado && totalPago + v >= totalEsperado) A.celebrate();
                 renderTab();
               });
             }).catch(function (e) { btn.disabled = false; A.toastErr(e); });
@@ -556,6 +625,7 @@
                 if (r2.error) throw r2.error;
                 rows.unshift(r2.data);
                 A.toast('Pagamento do cartao registrado — saldo ' + A.money(novoSaldo), 'ok');
+                if (novoSaldo <= 0) A.celebrate();
                 renderTab();
               });
             }).catch(function (e) { btnCartao.disabled = false; A.toastErr(e); });
