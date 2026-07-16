@@ -11,6 +11,22 @@
 
   var EXTRA_STATUS = ['proposto', 'aprovado', 'recusado', 'concluido'];
 
+  // cor propria de cada etapa do pipeline (header da coluna do kanban)
+  var STATUS_COR = {
+    'Lead': '#7A6A5C',             // cinza-quente
+    'Visita agendada': '#8A7358',
+    'Visita feita': '#96804F',
+    'Estimate Enviado': '#B8912F', // ambar
+    'Schedule': '#C9752E',         // laranja
+    'Prep': '#B85C38',
+    'In progress': '#3F9F5B',      // verde-vivo
+    'Blocker': '#A94438',
+    'review': '#6B7FB3',
+    'Done': '#2F6B45',             // verde-escuro
+    'Perdidos': '#9C5A52'          // vermelho apagado
+  };
+  function corStatus(st) { return STATUS_COR[st] || 'var(--warm)'; }
+
   var ORIGENS = [
     { value: 'lsa', label: 'LSA (Google Local Services)' },
     { value: 'google_search', label: 'Google Search' },
@@ -66,12 +82,23 @@
     root.innerHTML = skelKanban();
     return Promise.all([
       A.sb.from('jobs').select('*').order('created_at', { ascending: false }),
-      A.sb.from('work_orders').select('job_id,status,valor_repasse')
+      A.sb.from('work_orders').select('job_id,status,valor_repasse,data')
     ]).then(function (rs) {
       if (rs[0].error) throw rs[0].error;
       if (rs[1].error) throw rs[1].error;
       desenharKanban(root, rs[0].data || [], rs[1].data || []);
     });
+  }
+
+  // jobs com WO marcada pra HOJE (e ainda nao concluida) -> badge pulsante no card
+  function jobsComWoHoje(wos) {
+    var hoje = A.hoje(), set = {};
+    (wos || []).forEach(function (w) {
+      if (!w.data || String(w.data).slice(0, 10) !== hoje) return;
+      if (String(w.status || '') === 'Concluido') return;
+      set[w.job_id] = true;
+    });
+    return set;
   }
 
   // resumo por job das WOs concluidas -> { temConcluida, repasseFalta }
@@ -99,6 +126,7 @@
 
   function desenharKanban(root, jobs, wos) {
     var pendMap = resumoWosPorJob(wos);
+    var hojeSet = jobsComWoHoje(wos);
     var statuses = A.JOB_STATUSES.slice();
     jobs.forEach(function (j) {
       if (j.status && statuses.indexOf(j.status) < 0) statuses.push(j.status);
@@ -235,13 +263,26 @@
         if (!list.length && kFiltro.busca && !kFiltro.status) return '';
         var soma = list.reduce(function (s, j) { return s + Number(j.valor_total || 0); }, 0);
         return '<div class="kcol" data-st="' + A.esc(st) + '">' +
-          '<div class="kcol-h">' + A.icon(window.IAC_ICONS.forStatus(st), 16) + ' ' + A.esc(st) +
-          (soma > 0 ? '<span class="ksum" title="soma dos valores da coluna">' + A.money(soma) + '</span>' : '<span class="ksum"></span>') +
-          '<span class="count">' + list.length + '</span></div>' +
-          (list.length ? list.map(function (j) { return cardHtml(j, A.jobPendenteValor(j, pendMap[j.id])); }).join('') :
+          '<div class="kcol-h" style="background:' + corStatus(st) + '">' + A.icon(window.IAC_ICONS.forStatus(st), 16) + ' ' + A.esc(st) +
+          (soma > 0 ? '<span class="ksum" style="color:#fff;opacity:.92" title="soma dos valores da coluna" data-ksum="' + soma + '">' + A.money(soma) + '</span>' : '<span class="ksum"></span>') +
+          '<span class="count" data-kcount="' + list.length + '">' + list.length + '</span></div>' +
+          (list.length ? list.map(function (j) { return cardHtml(j, A.jobPendenteValor(j, pendMap[j.id]), hojeSet[j.id]); }).join('') :
             '<div class="empty" style="padding:18px 10px"><span class="muted">vazio</span></div>') +
           '</div>';
       }).join('') || A.empty('Nenhum job encontrado', 'Ajusta a busca ou o filtro.', 'search');
+
+      // transicao suave dos cards a cada re-render (mover de coluna, filtro…)
+      kb.classList.remove('page-enter');
+      void kb.offsetWidth; // reinicia a animacao
+      kb.classList.add('page-enter');
+
+      // contagem e soma $ subindo animadas (countUp respeita reduced-motion)
+      kb.querySelectorAll('[data-kcount]').forEach(function (el) {
+        A.countUp(el, Number(el.getAttribute('data-kcount')), '');
+      });
+      kb.querySelectorAll('[data-ksum]').forEach(function (el) {
+        A.countUp(el, Number(el.getAttribute('data-ksum')), '$');
+      });
 
       kb.querySelectorAll('.kcard').forEach(function (el) {
         el.addEventListener('click', function (ev) {
@@ -309,7 +350,7 @@
     aplicar();
   }
 
-  function cardHtml(j, pend) {
+  function cardHtml(j, pend, woHoje) {
     var ctNome = j.contractor ? ((A.cache.ctById[j.contractor] || {}).nome || j.contractor) : null;
     // follow-up vencido (cadencia 3/7/14) so faz sentido em Estimate Enviado
     var fuVencido = j.status === 'Estimate Enviado' && j.followup_em &&
@@ -321,8 +362,9 @@
     if (j.data_projeto) chips.push('<span class="kchip">📅 ' + A.esc(A.fmtData(j.data_projeto)) + '</span>');
     if (ctNome) chips.push('<span class="kchip warm" title="job de contractor — quem paga e o contractor">💼 ' + A.esc(ctNome) + '</span>');
     if (fuVencido) chips.push('<span class="kchip fire" title="follow-up vencido — ver no Meu Dia">🔥 follow-up</span>');
-    return '<div class="kcard" data-id="' + A.esc(j.id) + '">' +
-      '<div class="nm">' + A.esc(j.cliente || '(sem nome)') + '</div>' +
+    return '<div class="kcard ds-card" data-id="' + A.esc(j.id) + '">' +
+      '<div class="nm">' + A.esc(j.cliente || '(sem nome)') +
+      (woHoje ? ' <span class="ds-pulse" title="tem work order marcada pra hoje">HOJE</span>' : '') + '</div>' +
       (pend ? '<div style="margin:3px 0"><span class="badge yellow" title="a work order ja foi finalizada mas falta preencher valor pra o job ir pra Done">⚠️ Falta valor — WO finalizada</span></div>' : '') +
       '<div class="sv">' + A.icon(window.IAC_ICONS.forService(j.tipo_servico), 15) + ' <span>' +
       A.esc(j.tipo_servico || 'servico?') + (j.cidade_st ? ' · ' + A.esc(j.cidade_st) : '') + '</span></div>' +
@@ -365,7 +407,7 @@
       '<span class="badge warm">' + A.esc(job.status || '—') + '</span></div>' +
 
       // ---- campos editaveis ----
-      '<div class="card"><h3>' + A.icon('estimate', 18) + ' Dados do job <span class="grow"></span><span class="muted" style="font-weight:400">toca no valor pra editar</span></h3>' +
+      '<div class="card"><h3 class="ds-section-h">' + A.icon('estimate', 18) + ' Dados do job <span class="grow"></span><span class="muted" style="font-weight:400;font-size:12px">toca no valor pra editar</span></h3>' +
       '<div class="fields" id="j-fields">' +
       A.fld('Cliente', 'cliente', job.cliente) +
       A.fld('Telefone', 'telefone', job.telefone) +
@@ -393,8 +435,8 @@
       '</div>' +
 
       // ---- notas (timeline de blocos — tabela job_notes) ----
-      '<div class="card"><h3>' + A.icon('workorders', 18) + ' Notas <span class="grow"></span>' +
-      '<span class="badge" id="j-notes-count">' + notes.length + '</span></h3>' +
+      '<div class="card"><h3 class="ds-section-h">' + A.icon('workorders', 18) + ' Notas <span class="grow"></span>' +
+      '<span class="ds-n" id="j-notes-count">' + notes.length + '</span></h3>' +
       '<div class="note-add">' +
       '<div class="row" style="margin-bottom:6px">' +
       '<input id="nn-titulo" class="grow" placeholder="Titulo (opcional)" />' +
@@ -411,14 +453,14 @@
       '</div>' +
 
       // ---- recado pro cliente ----
-      '<div class="card"><h3>' + A.icon('open', 18) + ' Recado pro cliente</h3>' +
+      '<div class="card"><h3 class="ds-section-h">' + A.icon('open', 18) + ' Recado pro cliente</h3>' +
       '<label>EN — aparece no portal do cliente</label>' +
       '<textarea id="j-notas-cliente" placeholder="Message shown to the client…">' + A.esc(job.notas_cliente || '') + '</textarea>' +
       '<div class="muted" id="j-notas-st" style="margin-top:4px">Salva sozinho enquanto digita.</div>' +
       '</div>' +
 
       // ---- extras ----
-      '<div class="card"><h3>' + A.icon('plus', 18) + ' Extras <span class="grow"></span><span class="muted" style="font-weight:400">itens extras cobrados do cliente</span></h3>' +
+      '<div class="card"><h3 class="ds-section-h">' + A.icon('plus', 18) + ' Extras <span class="grow"></span><span class="muted" style="font-weight:400;font-size:12px">itens extras cobrados do cliente</span></h3>' +
       '<div id="j-extras"></div>' +
       '<hr class="sep"/>' +
       '<div class="row" style="align-items:flex-end">' +
@@ -429,8 +471,8 @@
       '</div></div>' +
 
       // ---- documentos (proposal, invoice, qualquer PDF do job) ----
-      '<div class="card"><h3>' + A.icon('receipt', 18) + ' 📎 Documentos <span class="grow"></span>' +
-      '<span class="badge" id="j-files-count">…</span></h3>' +
+      '<div class="card"><h3 class="ds-section-h">' + A.icon('receipt', 18) + ' 📎 Documentos <span class="grow"></span>' +
+      '<span class="ds-n" id="j-files-count">…</span></h3>' +
       '<div class="muted" style="margin:-4px 0 8px">Proposal, invoice e PDFs do job — tudo num lugar so.</div>' +
       '<div id="j-files">' + A.loading() + '</div>' +
       '<label class="btn sec block" style="margin-top:8px;cursor:pointer">📤 Enviar documentos (pode varios de uma vez)' +
@@ -438,10 +480,10 @@
       '</div>' +
 
       // ---- portal do cliente ----
-      '<div class="card"><h3>' + A.icon('open', 18) + ' Portal do cliente</h3><div id="j-portal"></div></div>' +
+      '<div class="card"><h3 class="ds-section-h">' + A.icon('open', 18) + ' Portal do cliente</h3><div id="j-portal"></div></div>' +
 
       // ---- WOs ----
-      '<div class="card"><h3>' + A.icon('workorders', 18) + ' Work orders deste job <span class="grow"></span>' +
+      '<div class="card"><h3 class="ds-section-h">' + A.icon('workorders', 18) + ' Work orders deste job <span class="ds-n">' + wos.length + '</span><span class="grow"></span>' +
       '<a class="btn sm" href="#/wo/nova?job=' + encodeURIComponent(job.id) + '">+ Nova WO</a></h3>' +
       (wos.length ? wos.map(function (w) {
         return '<a class="li-row" href="#/wo/' + A.esc(w.id) + '" style="color:inherit">' +
