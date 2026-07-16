@@ -630,3 +630,54 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
 .cx3-faixa { color: var(--muted); }
 .cx3-conta-acts { display: flex; gap: 6px; align-items: center; flex: none; }
 .cx3-reserva-big { font-size: 20px; font-weight: 800; color: var(--green); }
+
+/* ================= ⚠️ PRECISA DE VOCE (painel do Meu Dia) — prefixo .pv- == */
+.pv-panel {
+  background: #fffdf9;
+  border: 1.5px solid #f0dfc8;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 10px 12px 12px;
+  margin-top: 14px;
+}
+.pv-head.grp-h { margin: 0 0 4px; font-size: 15px; }
+.pv-head .pv-count { background: #fdeae6; color: var(--red); font-weight: 800; }
+.pv-body { margin-top: 4px; }
+.pv-vazio {
+  font-weight: 700; color: var(--green); font-size: 14px;
+  padding: 8px 4px 2px;
+}
+.pv-grp {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 800; color: var(--warm); font-size: 13px;
+  margin: 12px 0 6px; user-select: none;
+}
+.pv-grp:first-child { margin-top: 4px; }
+.pv-grp .count { background: var(--light); color: var(--warm); border-radius: 999px; font-size: 11px; padding: 2px 9px; }
+.pv-grp-tot { margin-left: auto; font-size: 13.5px; white-space: nowrap; }
+.pv-grp-tot.green { color: var(--green); }
+.pv-grp-tot.red { color: var(--red); }
+.pv-item {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--line);   /* barra lateral por tipo */
+  border-radius: 11px;
+  padding: 9px 11px;
+  margin-bottom: 7px;
+  cursor: pointer;
+}
+.pv-item.receber { border-left-color: var(--green); }
+.pv-item.pagar { border-left-color: var(--red); }
+.pv-item.w9 { border-left-color: #e6a23c; cursor: default; }
+.pv-main { flex: 1; min-width: 0; }
+.pv-t1 { font-weight: 700; font-size: 14.5px; color: var(--warm); }
+.pv-t1 .badge { vertical-align: middle; }
+.pv-t2 { font-size: 12px; color: var(--muted); margin-top: 1px; overflow-wrap: anywhere; }
+.pv-dep { font-size: 12px; margin-top: 4px; color: var(--muted); }
+.pv-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.pv-acts .btn { min-height: 40px; padding: 7px 11px; }
+.pv-vl { white-space: nowrap; font-size: 15px; font-weight: 800; align-self: center; }
+.pv-vl.green { color: var(--green); }
+.pv-vl.red { color: var(--red); }
+.pv-vl.amber { color: #b57a1e; }

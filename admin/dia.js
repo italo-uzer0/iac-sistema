@@ -217,7 +217,7 @@
   }
 
   /* ================================================ estado das secoes ====== */
-  var aberto = { roteiro: true, semana: true, chk: true, orc: true, rua: true, pagar: true, receber: true, followup: true };
+  var aberto = { pv: true, roteiro: true, semana: true, chk: true, orc: true, rua: true, pagar: true, receber: true, followup: true };
   var verTodosEstimates = false;
   var conferido = false; // "conferi tudo" na secao A pagar — so visual
 
@@ -230,7 +230,7 @@
     render: function (root) {
       return Promise.all([
         A.sb.from('jobs').select('id,cliente,telefone,endereco,cidade_st,tipo_servico,status,data_visita,created_at,valor_total,followup_em,followup_nivel').order('created_at', { ascending: false }),
-        A.sb.from('work_orders').select('id,job_id,sub_id,cliente,data,hora,status,endereco,cidade_st,servico,valor_repasse,pendencia,token,obs').order('data', { ascending: true, nullsFirst: false }),
+        A.sb.from('work_orders').select('id,job_id,sub_id,cliente,data,hora,status,endereco,cidade_st,servico,valor_repasse,pago_ao_sub,pendencia,token,obs').order('data', { ascending: true, nullsFirst: false }),
         A.sb.from('caixa').select('id,data,tipo,cliente,job_id,descricao,valor,status,pago_para').order('valor', { ascending: false }),
         A.sb.from('dia_tarefas').select('*').order('ordem', { ascending: true }).order('created_at', { ascending: true }),
         A.sb.from('agenda').select('*').gte('data', A.hoje()).lte('data', isoAddDias(6)).order('data', { ascending: true }).order('hora_inicio', { ascending: true, nullsFirst: false })
@@ -331,6 +331,9 @@
           ' · ' + A.esc(A.money(fuParado)) + ' parados</div>'
         : '') +
       '</div>';
+
+    // === ⚠️ PRECISA DE VOCE (painel consolidado, logo apos o hero) ===
+    html += painelPrecisa(montarPrecisa(jobs, wos, caixa));
 
     // === ROTEIRO DE HOJE (timeline no topo) ===
     var agendaHoje = DADOS.agenda.filter(function (a) {
@@ -629,6 +632,17 @@
         var j = DADOS.jobs.filter(function (x) { return x.id === btn.getAttribute('data-fu-sms'); })[0];
         if (!j) return;
         copiarTexto(smsFollowup(j), 'SMS copiado — cola no Messages 📱');
+      });
+    });
+
+    /* ---------- PAINEL ⚠️ PRECISA DE VOCE: copiar SMS de cobranca ---------- */
+    root.querySelectorAll('[data-pv-sms]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var c = DADOS.caixa.filter(function (x) { return x.id === btn.getAttribute('data-pv-sms'); })[0];
+        if (!c) return;
+        var j = c.job_id ? DADOS.jobs.filter(function (x) { return x.id === c.job_id; })[0] : null;
+        copiarTexto(smsCobranca(c, j), 'SMS de cobranca copiado — cola no Messages 📱');
       });
     });
 
@@ -1224,5 +1238,203 @@
       '<button class="btn danger sm dia-act" data-job-status="' + A.esc(j.id) + '" data-status-novo="' + ST.PERDIDO + '">✖ Perdido</button>' +
       '</div>' +
       '</div>';
+  }
+
+  /* ================================================ ⚠️ PRECISA DE VOCE ===== */
+  // Painel consolidado no topo do Meu Dia: TUDO que exige acao do Italo,
+  // priorizado por dinheiro (valor desc dentro de cada grupo).
+  //   1) 💵 COBRAR CLIENTE — entradas pendentes/parciais de jobs FECHADOS vencidas
+  //   2) 💸 PAGAR SUB     — trabalho CONCLUIDO com repasse em aberto
+  //   3) ⚠️ W9            — sub sem W9 com repasse pendente (NUNCA pagar antes)
+  var PV_FECHADO = ['schedule', 'prep', 'in progress', 'blocker', 'review', 'done'];
+  function pvJobFechado(j) {
+    return !!j && PV_FECHADO.indexOf(String(j.status || '').toLowerCase().trim()) >= 0;
+  }
+  function pvJobDone(j) { return !!j && eqStatus(j.status, 'Done'); }
+  // descricao indica que o pagamento depende de um recebimento?
+  function pvTemDependencia(txt) {
+    return /aguardand|dependend|depende\s|quando\s+(receber|entrar|pagar)|assim\s+que|ap[oó]s\s+receber|esperando/i
+      .test(String(txt || ''));
+  }
+  function pvCurto(txt, n) {
+    var t = String(txt || '').replace(/^\[(\w+)\]\s*/, '').trim();
+    n = n || 70;
+    if (t.length > n) t = t.slice(0, n - 3) + '…';
+    return t;
+  }
+  function pvValorDesc(a, b) { return Number(b.valor || 0) - Number(a.valor || 0); }
+
+  function montarPrecisa(jobs, wos, caixa) {
+    var jobById = {};
+    (jobs || []).forEach(function (j) { jobById[j.id] = j; });
+
+    /* --- 1) COBRAR CLIENTE --- */
+    // entrada pendente/parcial de job fechado (Schedule+) cuja data ja passou/e hoje
+    // (sem data: so entra se o job ja esta Done — dinheiro claramente devido)
+    var cobrar = [];
+    (caixa || []).forEach(function (c) {
+      if (c.tipo !== 'entrada') return;
+      if (c.status !== 'pendente' && c.status !== 'parcial') return;
+      var j = c.job_id ? jobById[c.job_id] : null;
+      if (!pvJobFechado(j)) return;
+      var vencida = c.data ? ehHojeOuPassado(c.data) : pvJobDone(j);
+      if (!vencida) return;
+      cobrar.push({ c: c, job: j, valor: Number(c.valor || 0) });
+    });
+    cobrar.sort(pvValorDesc);
+
+    /* --- 2) PAGAR SUB (trabalho ja concluido) --- */
+    var pagar = [];
+    var jobsCobertos = {}; // job_id ja representado por uma WO (evita duplicar com o caixa)
+    (wos || []).forEach(function (w) {
+      if (String(w.status || '') !== 'Concluido') return;
+      var falta = Number(w.valor_repasse || 0) - Number(w.pago_ao_sub || 0);
+      if (!(falta > 0)) return;
+      var sub = A.cache.subById && A.cache.subById[w.sub_id];
+      pagar.push({
+        woId: w.id, jobId: w.job_id, subObj: sub,
+        sub: A.subNome(w.sub_id), valor: falta,
+        parcial: Number(w.pago_ao_sub || 0) > 0,
+        ctx: [w.cliente, w.servico].filter(Boolean).join(' · '),
+        dep: pvTemDependencia(w.pendencia) || pvTemDependencia(w.obs),
+        depTxt: pvTemDependencia(w.pendencia) ? w.pendencia : w.obs
+      });
+      if (w.job_id) jobsCobertos[w.job_id] = true;
+    });
+    (caixa || []).forEach(function (c) {
+      if (c.tipo !== 'repasse') return;
+      if (c.status !== 'pendente' && c.status !== 'parcial') return;
+      var j = c.job_id ? jobById[c.job_id] : null;
+      if (!pvJobDone(j)) return;                       // so trabalho CONCLUIDO
+      if (c.job_id && jobsCobertos[c.job_id]) return;  // ja coberto pela WO
+      pagar.push({
+        caixaId: c.id, jobId: c.job_id, subObj: subDePagar(c),
+        sub: nomePagar(c), valor: Number(c.valor || 0),
+        parcial: c.status === 'parcial',
+        ctx: [c.cliente, pvCurto(c.descricao, 46)].filter(Boolean).join(' · '),
+        dep: pvTemDependencia(c.descricao), depTxt: c.descricao
+      });
+    });
+    pagar.sort(pvValorDesc);
+
+    /* --- 3) W9 — sub sem W9 com repasse pendente --- */
+    var w9map = {};
+    function addW9(sub, valor) {
+      if (!sub || sub.w9 !== false) return;
+      var k = String(sub.id || sub.nome || '');
+      if (!k) return;
+      if (!w9map[k]) w9map[k] = { sub: sub, valor: 0 };
+      w9map[k].valor += Number(valor || 0);
+    }
+    (caixa || []).forEach(function (c) {
+      if (c.tipo !== 'repasse') return;
+      if (c.status !== 'pendente' && c.status !== 'parcial') return;
+      addW9(subDePagar(c), c.valor);
+    });
+    pagar.forEach(function (it) { if (it.woId) addW9(it.subObj, it.valor); });
+    var w9 = Object.keys(w9map).map(function (k) { return w9map[k]; }).sort(pvValorDesc);
+
+    return { cobrar: cobrar, pagar: pagar, w9: w9 };
+  }
+
+  /* ---- SMS de cobranca (EN, educado, marca IAC Home Improvement) ---- */
+  function pvEhDeposit(c, job) {
+    var d = String((c && c.descricao) || '').toLowerCase();
+    if (/deposit|sinal|down\s*payment|50%|entrada/.test(d)) return true;
+    if (/balance|final|restante|saldo|remaining|conclus/.test(d)) return false;
+    return !pvJobDone(job); // sem pista: job Done => balance, senao deposit
+  }
+  function smsCobranca(c, job) {
+    var nome = String((c.cliente || (job && job.cliente) || '')).trim().split(/\s+/)[0] || 'there';
+    var serv = String((job && job.tipo_servico) || '').trim() || 'project';
+    var val = A.money(Number(c.valor || 0));
+    if (pvEhDeposit(c, job)) {
+      return "Hi " + nome + ", it's Italo from IAC Home Improvement. Just a friendly reminder about the " + val +
+        " deposit for your " + serv + " project, so we can keep everything on schedule. " +
+        "You can pay by Zelle, check or cash — whatever is easiest for you. Thank you!";
+    }
+    return "Hi " + nome + ", it's Italo from IAC Home Improvement. I hope you're happy with your " + serv + "! " +
+      "Just a friendly reminder about the remaining balance of " + val + ". " +
+      "You can pay by Zelle, check or cash — whatever is easiest for you. Thank you so much!";
+  }
+
+  /* ---- desenho do painel ---- */
+  function painelPrecisa(pv) {
+    var totalItens = pv.cobrar.length + pv.pagar.length + pv.w9.length;
+    var totCobrar = pv.cobrar.reduce(function (s, x) { return s + x.valor; }, 0);
+    var totPagar = pv.pagar.reduce(function (s, x) { return s + x.valor; }, 0);
+    var sub = totalItens
+      ? [pv.cobrar.length ? 'cobrar ' + A.money(totCobrar) : null,
+         pv.pagar.length ? 'pagar ' + A.money(totPagar) : null,
+         pv.w9.length ? pv.w9.length + ' sem W9' : null].filter(Boolean).join(' · ')
+      : 'tudo em dia';
+
+    var html = '<div class="pv-panel">' +
+      '<div class="grp-h pv-head" data-toggle="pv">⚠️ Precisa de voce' +
+      ' <span class="count pv-count">' + totalItens + '</span>' +
+      '<span class="dia-sec-sub">' + A.esc(sub) + '</span>' +
+      '<span class="arr">' + (aberto.pv ? '▲ recolher' : '▼ abrir') + '</span></div>';
+    html += '<div class="dia-sec pv-body" data-sec="pv"' + (aberto.pv ? '' : ' style="display:none"') + '>';
+
+    if (!totalItens) {
+      html += '<div class="pv-vazio">✅ Nada pendente</div>';
+    } else {
+      if (pv.cobrar.length) {
+        html += '<div class="pv-grp">💵 Cobrar cliente <span class="count">' + pv.cobrar.length + '</span>' +
+          '<b class="pv-grp-tot green">' + A.money(totCobrar) + '</b></div>';
+        html += pv.cobrar.map(pvItemCobrar).join('');
+      }
+      if (pv.pagar.length) {
+        html += '<div class="pv-grp">💸 Pagar sub <span class="count">' + pv.pagar.length + '</span>' +
+          '<b class="pv-grp-tot red">' + A.money(totPagar) + '</b></div>';
+        html += pv.pagar.map(pvItemPagar).join('');
+      }
+      if (pv.w9.length) {
+        html += '<div class="pv-grp">⚠️ W9 faltando <span class="count">' + pv.w9.length + '</span></div>';
+        html += pv.w9.map(pvItemW9).join('');
+      }
+    }
+    html += '</div></div>';
+    return html;
+  }
+
+  function pvItemCobrar(it) {
+    var c = it.c, j = it.job;
+    return '<div class="pv-item receber"' + (j ? ' data-abrir-job="' + A.esc(j.id) + '"' : '') + '>' +
+      '<div class="pv-main">' +
+      '<div class="pv-t1">' + A.esc(c.cliente || (j && j.cliente) || '—') +
+      (j && j.status ? ' <span class="badge warm">' + A.esc(j.status) + '</span>' : '') +
+      (c.status === 'parcial' ? ' <span class="badge orange">parcial</span>' : '') + '</div>' +
+      '<div class="pv-t2">' + A.esc(pvCurto(c.descricao) || 'entrada a receber') +
+      (c.data ? ' · ' + A.esc(A.fmtData(c.data)) : '') + '</div>' +
+      '<div class="pv-acts">' +
+      '<button class="btn sec sm dia-act" data-pv-sms="' + A.esc(c.id) + '">📋 copiar SMS de cobranca</button>' +
+      '</div></div>' +
+      '<b class="pv-vl green">' + A.money(c.valor) + '</b></div>';
+  }
+
+  function pvItemPagar(it) {
+    var attr = it.woId ? ' data-abrir-wo="' + A.esc(it.woId) + '"'
+      : it.jobId ? ' data-abrir-job="' + A.esc(it.jobId) + '"' : '';
+    var semW9 = it.subObj && it.subObj.w9 === false;
+    return '<div class="pv-item pagar"' + attr + '>' +
+      '<div class="pv-main">' +
+      '<div class="pv-t1">' + A.esc(it.sub || 'sub') +
+      (semW9 ? ' <span class="badge red">⚠ SEM W9</span>' : '') +
+      (it.parcial ? ' <span class="badge orange">parcial</span>' : '') + '</div>' +
+      '<div class="pv-t2">' + A.esc(it.ctx || 'trabalho concluido — repasse em aberto') + '</div>' +
+      (it.dep ? '<div class="pv-dep">⏳ <span class="badge yellow">depende de recebimento</span> ' +
+        A.esc(pvCurto(it.depTxt, 60)) + '</div>' : '') +
+      '</div>' +
+      '<b class="pv-vl red">' + A.money(it.valor) + '</b></div>';
+  }
+
+  function pvItemW9(x) {
+    return '<div class="pv-item w9">' +
+      '<div class="pv-main">' +
+      '<div class="pv-t1"><span class="badge red">⚠ SEM W9</span> ' + A.esc(x.sub.nome || x.sub.id) + '</div>' +
+      '<div class="pv-t2">repasse pendente — cobrar o W9 ANTES de pagar</div>' +
+      '</div>' +
+      '<b class="pv-vl amber">' + A.money(x.valor) + '</b></div>';
   }
 })();
