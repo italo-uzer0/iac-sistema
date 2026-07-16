@@ -1064,6 +1064,12 @@ window.IAC_CFG = {
     var mapUrl = 'https://maps.google.com/?q=' + encodeURIComponent(addr || W.cidade_st || '');
     var svcIcon = ICN.forService(W.servico);
 
+    // Decide o modo do checklist ANTES do hero: modo roteiro (varias paradas 📍)
+    // OU cartao-parada UNICO sintetico (WO comum de 1 endereco). Nos dois casos o
+    // mapa + agenda vivem no(s) CARTAO(OES) — o hero entao nao repete o botao,
+    // so mostra o endereco-texto. Assim TODO sub ganha o mesmo estilo.
+    RT = parseRoteiro(W.checklist, W);
+
     var h = '';
     if (GUY.DEMO) h += '<div class="demo-banner">DEMO — sample work order, no real data</div>';
 
@@ -1073,13 +1079,14 @@ window.IAC_CFG = {
       '<div><h1>' + esc(W.cliente) + '</h1><div class="s">' + esc(W.servico) + '</div></div></div>';
     if (addr) {
       h += '<div class="gline">' + ic('map', 18) + '<span>' + esc(addr) + '</span></div>';
-      h += '<div class="gline">' + ic('open', 18) + '<a href="' + esc(mapUrl) + '" target="_blank" rel="noopener">' + esc(T.map) + '</a></div>';
+      if (!RT) h += '<div class="gline">' + ic('open', 18) + '<a href="' + esc(mapUrl) + '" target="_blank" rel="noopener">' + esc(T.map) + '</a></div>';
     }
     h += '<div class="gline">' + ic('schedule', 18) + '<span>' + dateLong(W.data, lang) +
       (W.hora ? ' · ' + esc(W.hora) : '') + '</span></div>';
-    // 📅 ADICIONAR A MINHA AGENDA — so quando a WO tem data. Abre o Google
-    // Calendar pre-preenchido. SUB-SAFE: evento sem NENHUM valor financeiro.
-    if (W.data) {
+    // 📅 ADICIONAR A MINHA AGENDA — so quando a WO tem data E nao ha cartao de
+    // parada (cada cartao ja carrega o proprio botao de agenda). SUB-SAFE:
+    // evento sem NENHUM valor financeiro.
+    if (W.data && !RT) {
       var gcal = gcalUrl(addr);
       if (gcal) {
         h += '<div class="gcal-wrap"><a class="gcal-btn" href="' + esc(gcal) +
@@ -1113,7 +1120,6 @@ window.IAC_CFG = {
     // concluido) ganha destaque visual pra legibilidade no canteiro.
     // MODO ROTEIRO: se houver itens '📍 ENDERECO N#', o dia vira paradas
     // clicaveis (accordion). O progresso geral (X de Y) continua igual.
-    RT = parseRoteiro(W.checklist);
     if (W.checklist && W.checklist.length) {
       h += '<div class="section-title">' + ic('check', 15) + esc(T.checklist) + '</div>';
       h += '<div class="progress-bar"><i id="bar"></i></div>';
@@ -1244,14 +1250,14 @@ window.IAC_CFG = {
   //   FINAIS consecutivos comecando com ✅ = fim do dia. Parse tolerante do
   //   header ('📍 ENDERECO N# — NOME (HORA): endereco — abrir no mapa: URL');
   //   se nao casar, cai no texto cru (raw) sem quebrar nada.
-  function parseRoteiro(checklist) {
+  function parseRoteiro(checklist, ctx) {
     if (!checklist || !checklist.length) return null;
     var HDR = /^📍\s*ENDERE[CÇ]O\s*(\d+)#/i;
     var isRt = false;
     for (var x = 0; x < checklist.length; x++) {
       if (HDR.test(String(checklist[x].item || ''))) { isRt = true; break; }
     }
-    if (!isRt) return null;
+    if (!isRt) return synthOne(checklist, ctx);
 
     var items = checklist.map(function (c, i) { return { c: c, i: i }; });
     // fim do dia: itens finais consecutivos que comecam com ✅
@@ -1289,7 +1295,25 @@ window.IAC_CFG = {
   }
   // [RT-PARSE-END]
 
-  function stopGroup(s) { return [s.header].concat(s.items); }
+  // WO "flat" (1 job, 1 endereco) tambem vira UM cartao-parada sintetico — assim
+  // TODO sub ganha o mesmo estilo do roteiro: botao grande de mapa + agenda + o
+  // checklist dentro do card. Sem endereco (ex: lembrete so de material) devolve
+  // null e o portal cai no checklist simples de sempre. A persistencia NAO muda:
+  // cada item mantem o INDICE GLOBAL (data-i) que o wo_set_check usa.
+  function synthOne(checklist, ctx) {
+    if (!ctx) return null;
+    var addr = [ctx.endereco, ctx.cidade_st].filter(Boolean).join(', ');
+    if (!addr) return null;
+    var items = checklist.map(function (c, i) { return { c: c, i: i }; });
+    var stop = {
+      num: '', nome: ctx.cliente || addr, hora: ctx.hora || '',
+      endereco: addr, mapUrl: 'https://maps.google.com/?q=' + encodeURIComponent(addr),
+      raw: ctx.cliente || addr, header: null, items: items, synthetic: true
+    };
+    return { inicio: [], stops: [stop], fim: [] };
+  }
+
+  function stopGroup(s) { return s.synthetic ? s.items : [s.header].concat(s.items); }
 
   function roteiroHtml(rt) {
     // primeira parada NAO totalmente concluida comeca EXPANDIDA
@@ -1342,14 +1366,14 @@ window.IAC_CFG = {
       h += '<a class="stp-map" href="' + esc(map) + '" target="_blank" rel="noopener">🗺️ ' +
         esc(T.map).toUpperCase() + '</a>';
     }
-    var cal = (W.data && s.hora) ? gcalUrl(s.endereco, { hora: s.hora, title: 'IAC: ' + nome }) : null;
+    var cal = W.data ? gcalUrl(s.endereco, { hora: s.hora, title: 'IAC: ' + nome }) : null;
     if (cal) {
       h += '<a class="stp-cal" href="' + esc(cal) + '" target="_blank" rel="noopener">📅 ' +
         esc(T.addCal) + '</a>';
     }
     h += '<div class="checklist stp-chk">' +
       s.items.map(function (it) { return chkBtn(it); }).join('') +
-      chkBtn(s.header, '📍 ' + T.rtStop + ' ' + s.num + '# ' + T.rtDone, true) +
+      (s.synthetic ? '' : chkBtn(s.header, '📍 ' + T.rtStop + ' ' + s.num + '# ' + T.rtDone, true)) +
       '</div>';
     h += '</div></div></div></div>';
     return h;
