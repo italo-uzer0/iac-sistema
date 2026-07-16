@@ -53,6 +53,43 @@
 
   var MESES_PT = ['', 'Janeiro', 'Fevereiro', 'Marco', 'Abril', 'Maio', 'Junho',
     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  var DIAS3 = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'];
+
+  // chip de dia colorido (padrao WOs) pra lista "esta semana"
+  function chipDia(w) {
+    var d = A.parseISO(w.data);
+    if (!d) return '<span class="ds-chip-day semdata">SEM DATA</span>';
+    var hoje0 = A.parseISO(A.hoje());
+    var txt = DIAS3[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0');
+    var hora = w.hora ? ' · ' + A.esc(w.hora) : '';
+    if (hoje0 && d.getTime() === hoje0.getTime())
+      return '<span class="ds-chip-day hoje">HOJE' + hora + '</span>';
+    if (hoje0 && d < hoje0)
+      return '<span class="ds-chip-day atrasada">⚠ ' + txt + '</span>';
+    return '<span class="ds-chip-day d' + d.getDay() + '">' + txt + hora + '</span>';
+  }
+
+  // dispara countUp em todos os [data-count] e enche as barras [data-barw]
+  function animar(root) {
+    var els = root.querySelectorAll('[data-count]');
+    for (var i = 0; i < els.length; i++) {
+      (function (el) {
+        A.countUp(el, Number(el.getAttribute('data-count')) || 0, el.getAttribute('data-pre') || '');
+      })(els[i]);
+    }
+    var bars = root.querySelectorAll('[data-barw]');
+    if (bars.length && window.requestAnimationFrame) {
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          for (var k = 0; k < bars.length; k++)
+            bars[k].style.width = bars[k].getAttribute('data-barw') + '%';
+        });
+      });
+    } else {
+      for (var m = 0; m < bars.length; m++)
+        bars[m].style.width = bars[m].getAttribute('data-barw') + '%';
+    }
+  }
 
   function mensalEsperado(c) {
     var v = Number(c.valor || 0);
@@ -96,10 +133,11 @@
 
     function sinal(v) { return v >= 0 ? 'lc-pos' : 'lc-neg'; }
 
-    return '<div class="card lc-hero">' +
+    return '<div class="card lc-hero ds-hero">' +
       '<div class="lc-title">📊 Lucro do mes — ' + A.esc(mesLabel) + '</div>' +
       '<div class="lc-lucro-lbl">Lucro liquido ate agora</div>' +
-      '<div class="lc-lucro ' + sinal(lucro) + '">' + A.esc(A.money(lucro)) + '</div>' +
+      '<div class="lc-lucro ' + sinal(lucro) + '" data-count="' + Math.abs(lucro) +
+      '" data-pre="' + (lucro < 0 ? '-$' : '$') + '">' + A.esc(A.money(lucro)) + '</div>' +
       '<div class="lc-grid">' +
       lcItem('Recebido', A.money(recebido), 'lc-pos') +
       lcItem('Repasses pagos', A.money(-repasses), repasses > 0 ? 'lc-neg' : '') +
@@ -110,7 +148,7 @@
       '<b class="' + sinal(projecao) + '">' + A.esc(A.money(projecao)) + '</b></div>' +
       '<div class="lc-be-txt">Pra empatar o mes: faturar ~' + A.esc(A.money(meta)) +
       ' <span class="muted">(total das contas fixas do mes)</span></div>' +
-      '<div class="lc-bar"><div class="lc-bar-fill' + (bateu ? ' ok' : '') + '" style="width:' + pct + '%"></div></div>' +
+      '<div class="ds-bar' + (bateu ? ' green' : '') + '"><i data-barw="' + pct + '"></i></div>' +
       '<div class="lc-be-sub">Recebido ' + A.esc(A.money(recebido)) + ' de ' + A.esc(A.money(meta)) +
       ' (' + pct + '%)' + (bateu ? ' — mes empatado, daqui pra frente e lucro ✔' : '') + '</div>' +
       '</div>';
@@ -147,10 +185,10 @@
       '<div class="h-page">' + A.icon('dashboard', 22) + ' Dashboard</div>' +
       heroLucro(caixa, contas || [], pagosFixas || []) +
       '<div class="stat-grid">' +
-      stat('A receber (confirmado)', A.money(aReceber), 'orange', 'jobs confirmados: total − pago') +
-      stat('Recebido (caixa)', A.money(recebido), 'green', 'entradas pagas registradas') +
-      stat('Repasses pendentes', A.money(repPend), 'red', repPendN + ' work order' + (repPendN === 1 ? '' : 's')) +
-      stat('Jobs ativos', String(ativos), '', A.JOB_ATIVOS.join(' · ')) +
+      stat('A receber (confirmado)', A.money(aReceber), 'orange', 'jobs confirmados: total − pago', '#/caixa', aReceber, '$') +
+      stat('Recebido (caixa)', A.money(recebido), 'green', 'entradas pagas registradas', '#/caixa', recebido, '$') +
+      stat('Repasses pendentes', A.money(repPend), 'red', repPendN + ' work order' + (repPendN === 1 ? '' : 's'), '#/wo', repPend, '$') +
+      stat('Jobs ativos', String(ativos), '', A.JOB_ATIVOS.join(' · '), '#/jobs', ativos, '') +
       '</div>';
 
     // ---- grafico mensal (qbo) ----
@@ -160,7 +198,7 @@
         var mm = String(m.mes || '').slice(5);
         return ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][Number(mm)] || m.mes;
       });
-      html += '<div class="card"><h3>' + A.icon('caixa', 18) + ' Receita vs Despesas (QuickBooks ' + A.esc((dados.periodo && dados.periodo.inicio || '').slice(0, 4)) + ')</h3>' +
+      html += '<div class="card"><div class="ds-section-h">' + A.icon('caixa', 18) + ' Receita vs Despesas <span class="ds-n">QuickBooks ' + A.esc((dados.periodo && dados.periodo.inicio || '').slice(0, 4)) + '</span></div>' +
         A.chartBarras(labels, [
           { label: 'Receita', cor: '#3f8f5b', valores: dados.mensal.map(function (m) { return Number(m.receita || 0); }) },
           { label: 'Despesas', cor: '#c1432f', valores: dados.mensal.map(function (m) { return Number(m.despesas || 0) + Number(m.materiais || 0); }) }
@@ -168,7 +206,7 @@
         '<div class="muted" style="margin-top:6px">Despesas = despesas operacionais + materiais (COGS). Snapshot: ' + A.esc(qbo.atualizado || '—') + '</div>' +
         '</div>';
     } else {
-      html += '<div class="card"><h3>' + A.icon('caixa', 18) + ' Receita vs Despesas</h3>' +
+      html += '<div class="card"><div class="ds-section-h">' + A.icon('caixa', 18) + ' Receita vs Despesas</div>' +
         A.empty('Sem snapshot do QuickBooks', 'Atualize a tabela qbo_snapshot pra ver o grafico.') + '</div>';
     }
 
@@ -182,7 +220,7 @@
       });
       items.sort(function (a, b) { return b.valor - a.valor; });
       items = items.slice(0, 10);
-      html += '<div class="card"><h3>' + A.icon('precos', 18) + ' Despesas por categoria (ano)</h3>' + A.chartHBar(items) + '</div>';
+      html += '<div class="card"><div class="ds-section-h">' + A.icon('precos', 18) + ' Despesas por categoria (ano) <span class="ds-n">' + items.length + '</span></div>' + A.chartHBar(items) + '</div>';
     }
 
     // ---- esta semana ----
@@ -192,14 +230,14 @@
       return d && d >= wr[0] && d <= wr[1];
     }).sort(function (a, b) { return String(a.data).localeCompare(String(b.data)); });
 
-    html += '<div class="card"><h3>' + A.icon('schedule', 18) + ' Esta semana</h3>';
+    html += '<div class="card"><div class="ds-section-h">' + A.icon('schedule', 18) + ' Esta semana <span class="ds-n">' + semana.length + '</span></div>';
     if (!semana.length) {
       html += A.empty('Nada agendado esta semana', 'Work orders com data nesta semana aparecem aqui.', 'schedule');
     } else {
       html += semana.map(function (w) {
-        return '<a class="li-row" href="#/wo/' + A.esc(w.id) + '" style="color:inherit">' +
-          '<div class="main"><div class="t1">' + A.esc(w.cliente || '—') + ' <span class="muted">(' + A.esc(A.subNome(w.sub_id)) + ')</span></div>' +
-          '<div class="t2">' + A.esc(A.fmtDataDia(w.data)) + (w.hora ? ' · ' + A.esc(w.hora) : '') + ' · ' + A.esc(w.servico || '') + '</div></div>' +
+        return '<a class="li-row ds-card" href="#/wo/' + A.esc(w.id) + '" style="color:inherit">' +
+          '<div class="main"><div class="t1">' + chipDia(w) + ' ' + A.esc(w.cliente || '—') + ' <span class="muted">(' + A.esc(A.subNome(w.sub_id)) + ')</span></div>' +
+          '<div class="t2">' + A.esc(w.servico || '') + '</div></div>' +
           '<span class="badge ' + woBadge(w.status) + '">' + A.esc(w.status || '') + '</span>' +
           '</a>';
       }).join('');
@@ -207,6 +245,7 @@
     html += '</div>';
 
     root.innerHTML = html;
+    animar(root);
   }
 
   function woBadge(st) {
@@ -215,9 +254,14 @@
     if (st === 'A enviar') return 'red';
     return '';
   }
-  function stat(lbl, val, cls, sub) {
-    return '<div class="stat"><div class="lbl">' + A.esc(lbl) + '</div>' +
-      '<div class="val ' + (cls || '') + '">' + A.esc(val) + '</div>' +
-      (sub ? '<div class="sub">' + A.esc(sub) + '</div>' : '') + '</div>';
+  function stat(lbl, val, cls, sub, href, num, pre) {
+    var anim = (typeof num === 'number' && isFinite(num))
+      ? ' data-count="' + Math.abs(num) + '" data-pre="' + ((num < 0 ? '-' : '') + (pre || '')) + '"'
+      : '';
+    return '<a class="stat ds-card" href="' + A.esc(href || '#/dash') + '"' +
+      ' style="display:block;color:inherit;text-decoration:none;cursor:pointer">' +
+      '<div class="lbl">' + A.esc(lbl) + '</div>' +
+      '<div class="val ' + (cls || '') + '"' + anim + '>' + A.esc(val) + '</div>' +
+      (sub ? '<div class="sub">' + A.esc(sub) + '</div>' : '') + '</a>';
   }
 })();
