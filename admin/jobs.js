@@ -362,6 +362,15 @@
     if (j.data_projeto) chips.push('<span class="kchip">📅 ' + A.esc(A.fmtData(j.data_projeto)) + '</span>');
     if (ctNome) chips.push('<span class="kchip warm" title="job de contractor — quem paga e o contractor">💼 ' + A.esc(ctNome) + '</span>');
     if (fuVencido) chips.push('<span class="kchip fire" title="follow-up vencido — ver no Meu Dia">🔥 follow-up</span>');
+    // assinatura do proposal: assinado (verde) | falta assinar (ambar pulsante,
+    // so em Schedule/Prep/In progress com proposta enviada — NAO em Estimate Enviado)
+    var temProposta = j.valor_total !== null && j.valor_total !== undefined && Number(j.valor_total) > 0;
+    var emExecucao = ['Schedule', 'Prep', 'In progress'].indexOf(j.status) >= 0;
+    if (j.proposal_assinado) {
+      chips.push('<span class="kchip" style="background:#e2f2e8;color:var(--green);font-weight:800" title="proposal assinado">✍️ Assinado</span>');
+    } else if (emExecucao && temProposta) {
+      chips.push('<span class="ds-pulse" title="proposal ainda nao assinado — cobrar antes de comecar">⏳ Falta assinar</span>');
+    }
     return '<div class="kcard ds-card" data-id="' + A.esc(j.id) + '">' +
       '<div class="nm">' + A.esc(j.cliente || '(sem nome)') +
       (woHoje ? ' <span class="ds-pulse" title="tem work order marcada pra hoje">HOJE</span>' : '') + '</div>' +
@@ -433,6 +442,9 @@
         ? '<hr class="sep"/><div class="row"><span class="muted">Margem estimada (total − repasses das WOs):</span> <b style="color:' + (margem >= 0 ? 'var(--green)' : 'var(--red)') + '">' + A.money(margem) + '</b></div>'
         : '') +
       '</div>' +
+
+      // ---- assinatura do proposal ----
+      '<div class="card"><h3 class="ds-section-h">' + A.icon('estimate', 18) + ' ✍️ Assinatura do proposal</h3><div id="j-proposal"></div></div>' +
 
       // ---- notas (timeline de blocos — tabela job_notes) ----
       '<div class="card"><h3 class="ds-section-h">' + A.icon('workorders', 18) + ' Notas <span class="grow"></span>' +
@@ -822,6 +834,41 @@
         listarArquivos();
       });
     });
+
+    // ---------- assinatura do proposal ----------
+    function pintarProposal() {
+      var box = document.getElementById('j-proposal');
+      if (!box) return;
+      if (job.proposal_assinado) {
+        box.innerHTML =
+          '<div class="row" style="align-items:center"><span class="badge" style="background:#e2f2e8;color:var(--green);font-weight:800">✍️ Assinado em ' +
+          A.esc(A.fmtData(job.proposal_assinado)) + '</span></div>' +
+          '<button class="btn sec sm" id="j-prop-off" style="margin-top:8px">↩️ desmarcar</button>';
+        document.getElementById('j-prop-off').addEventListener('click', function () {
+          salvarJob(job.id, { proposal_assinado: null }).then(function () {
+            job.proposal_assinado = null; A.toast('Assinatura desmarcada', 'ok'); pintarProposal();
+          }).catch(A.toastErr);
+        });
+        return;
+      }
+      box.innerHTML =
+        '<div class="muted" style="margin-bottom:8px">Proposal ainda nao assinado.</div>' +
+        '<button class="btn" id="j-prop-on">✍️ Marcar proposal como assinado</button>';
+      document.getElementById('j-prop-on').addEventListener('click', function () {
+        var hoje = A.hoje();
+        salvarJob(job.id, { proposal_assinado: hoje }).then(function () {
+          job.proposal_assinado = hoje;
+          A.sb.from('job_notes').insert({
+            job_id: job.id, data: hoje, titulo: 'Proposal assinado', texto: 'Proposal assinado registrado'
+          }).select().single().then(function (r) {
+            if (!r.error && r.data) { notes.push(r.data); ordenarNotas(); pintarNotas(); }
+          }).catch(function () { });
+          A.toast('Proposal marcado como assinado ✓', 'ok');
+          pintarProposal();
+        }).catch(A.toastErr);
+      });
+    }
+    pintarProposal();
 
     // ---------- portal do cliente ----------
     function pintarPortal() {

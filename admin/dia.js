@@ -217,7 +217,7 @@
   }
 
   /* ================================================ estado das secoes ====== */
-  var aberto = { pv: true, roteiro: true, semana: true, chk: true, orc: true, rua: true, pagar: true, receber: true, followup: true };
+  var aberto = { pv: true, assinar: true, roteiro: true, semana: true, chk: true, orc: true, rua: true, pagar: true, receber: true, followup: true };
   var verTodosEstimates = false;
   var conferido = false; // "conferi tudo" na secao A pagar — so visual
 
@@ -229,7 +229,7 @@
   A.pages.dia = {
     render: function (root) {
       return Promise.all([
-        A.sb.from('jobs').select('id,cliente,telefone,endereco,cidade_st,tipo_servico,status,data_visita,created_at,valor_total,followup_em,followup_nivel').order('created_at', { ascending: false }),
+        A.sb.from('jobs').select('id,cliente,telefone,endereco,cidade_st,tipo_servico,status,data_visita,data_projeto,created_at,valor_total,followup_em,followup_nivel,proposal_assinado').order('created_at', { ascending: false }),
         A.sb.from('work_orders').select('id,job_id,sub_id,cliente,data,hora,status,endereco,cidade_st,servico,valor_repasse,pago_ao_sub,pendencia,token,obs').order('data', { ascending: true, nullsFirst: false }),
         A.sb.from('caixa').select('id,data,tipo,cliente,job_id,descricao,valor,status,pago_para').order('valor', { ascending: false }),
         A.sb.from('dia_tarefas').select('*').order('ordem', { ascending: true }).order('created_at', { ascending: true }),
@@ -336,6 +336,26 @@
 
     // === ⚠️ PRECISA DE VOCE (painel consolidado, logo apos o hero) ===
     html += painelPrecisa(montarPrecisa(jobs, wos, caixa));
+
+    // === 📝 PROPOSALS A ASSINAR (cobrar o assinado antes de comecar) ===
+    var aAssinar = jobs.filter(function (j) {
+      if (j.proposal_assinado) return false;
+      if (['schedule', 'prep', 'in progress'].indexOf(String(j.status || '').toLowerCase().trim()) < 0) return false;
+      return Number(j.valor_total || 0) > 0; // proposta enviada
+    }).sort(function (a, b) {
+      var da = a.data_projeto ? String(a.data_projeto).slice(0, 10) : '9999-99-99';
+      var db = b.data_projeto ? String(b.data_projeto).slice(0, 10) : '9999-99-99';
+      return da < db ? -1 : da > db ? 1 : 0; // quem comeca antes no topo
+    });
+    html += secaoHead('assinar', '📝 Proposals a assinar', aAssinar.length, 'cobrar o assinado antes de comecar');
+    html += '<div class="dia-sec" data-sec="assinar"' + (aberto.assinar ? '' : ' style="display:none"') + '>';
+    if (!aAssinar.length) {
+      html += A.empty('✅ Todos os proximos com proposal assinado', 'Jobs em Schedule/Prep/In progress sem o proposal assinado aparecem aqui.', 'estimate');
+    } else {
+      html += '<div class="dia-note">Antes de comecar, garanta o proposal assinado. Vermelho = comeca em ate 2 dias sem assinar.</div>';
+      html += aAssinar.map(cardAssinar).join('');
+    }
+    html += '</div>';
 
     // === ROTEIRO DE HOJE (timeline no topo) ===
     var agendaHoje = DADOS.agenda.filter(function (a) {
@@ -638,6 +658,16 @@
         var j = DADOS.jobs.filter(function (x) { return x.id === btn.getAttribute('data-fu-sms'); })[0];
         if (!j) return;
         copiarTexto(smsFollowup(j), 'SMS copiado — cola no Messages 📱');
+      });
+    });
+
+    /* ---------- PROPOSALS A ASSINAR: copiar SMS pedindo o assinado ---------- */
+    root.querySelectorAll('[data-pa-sms]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var j = DADOS.jobs.filter(function (x) { return x.id === btn.getAttribute('data-pa-sms'); })[0];
+        if (!j) return;
+        copiarTexto(smsAssinar(j), 'SMS copiado — cola no Messages 📱');
       });
     });
 
@@ -1254,6 +1284,41 @@
       '<button class="btn sec sm dia-act" data-fu-contatei="' + A.esc(j.id) + '">✔ contatei</button>' +
       '<button class="btn green sm dia-act" data-fu-fechou="' + A.esc(j.id) + '">✔ FECHOU</button>' +
       '<button class="btn danger sm dia-act" data-job-status="' + A.esc(j.id) + '" data-status-novo="' + ST.PERDIDO + '">✖ Perdido</button>' +
+      '</div>' +
+      '</div>';
+  }
+
+  /* ---- 📝 PROPOSALS A ASSINAR: SMS EN pedindo o proposal assinado ---- */
+  function smsAssinar(j) {
+    var nome = String(j.cliente || '').trim().split(/\s+/)[0] || 'there';
+    var data = j.data_projeto ? A.fmtData(j.data_projeto) : 'the start date';
+    return "Hi " + nome + ", Italo from IAC Home Improvement — before we start on " + data +
+      ", could you send back the signed proposal? Reply or email it over. Thanks!";
+  }
+  /* ---- 📝 PROPOSALS A ASSINAR: card ---- */
+  function cardAssinar(j) {
+    var ate = j.data_projeto ? -diasDesde(j.data_projeto) : null;
+    var comeca, vermelho = false;
+    if (ate === null) comeca = '<span class="muted">sem data de projeto</span>';
+    else if (ate < 0) { comeca = '<b style="color:var(--red)">JA COMECOU</b>'; vermelho = true; }
+    else if (ate === 0) { comeca = '<b style="color:var(--red)">COMECA HOJE</b>'; vermelho = true; }
+    else { comeca = 'comeca em <b>' + ate + '</b> dia' + (ate === 1 ? '' : 's'); if (ate <= 2) vermelho = true; }
+    return '<div class="card dia-card ds-card dia-card-sm"' +
+      (vermelho ? ' style="border-left:6px solid var(--red)"' : '') + '>' +
+      '<div class="dia-card-top">' +
+      '<div class="dia-nm" style="font-size:14.5px">' + A.esc(j.cliente || '(sem nome)') +
+      (j.valor_total !== null && j.valor_total !== undefined
+        ? ' <b style="color:var(--green)">' + A.esc(A.money(j.valor_total)) + '</b>' : '') +
+      ' <span class="badge warm">' + A.esc(j.status || '') + '</span></div>' +
+      '<span class="muted" style="font-size:12px;white-space:nowrap">' + comeca + '</span>' +
+      '</div>' +
+      '<div class="dia-sv" style="margin:2px 0">' + A.icon(window.IAC_ICONS.forService(j.tipo_servico), 14) + ' ' +
+      A.esc(j.tipo_servico || 'servico?') + (j.cidade_st ? ' · ' + A.esc(j.cidade_st) : '') +
+      (j.data_projeto ? ' · <span class="muted">projeto ' + A.esc(A.fmtDataDia(j.data_projeto)) + '</span>' : '') + '</div>' +
+      '<div class="dia-actions">' +
+      btnLigar(j.telefone) +
+      '<button class="btn sec sm dia-act" data-pa-sms="' + A.esc(j.id) + '">📋 copiar SMS</button>' +
+      '<button class="btn sec sm dia-act" data-abrir-job="' + A.esc(j.id) + '">' + A.icon('open', 15) + ' abrir job</button>' +
       '</div>' +
       '</div>';
   }
