@@ -8,8 +8,6 @@
   'use strict';
   var A = window.ADM;
 
-  var GRUPOS = ['Em andamento', 'A enviar', 'Enviado ao sub', 'Concluido'];
-
   /* ------------------------------------------------ templates de checklist */
   var TEMPLATES = {
     vinyl: {
@@ -180,8 +178,13 @@
   };
 
   /* ========================================================= LISTA ======= */
+  /* WOs "VIVAS": secao do EDU (gerente) no topo, depois GUYS; dentro de cada
+     secao agrupado por TEMPO (🔥 HOJE / 📅 ESTA SEMANA / ⏭️ PROXIMAS SEMANAS /
+     SEM DATA) e WOs do MESMO job agrupadas num cartao-mae do cliente. */
   var fFiltro = { sub: '', semana: '' };
-  var abertos = { 'Em andamento': true, 'A enviar': true, 'Enviado ao sub': true, 'Concluido': false };
+  var conclAberto = false;
+
+  var DIAS3 = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'];
 
   function renderLista(root) {
     return Promise.all([
@@ -197,6 +200,157 @@
       });
       desenharLista(root, wos, prog);
     });
+  }
+
+  /* ---- pecas visuais ---- */
+  function chipDia(w, hoje0) {
+    var d = A.parseISO(w.data);
+    if (!d) return '<span class="wov-chip wov-chip-semdata">SEM DATA</span>';
+    var txt = DIAS3[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0');
+    var hora = w.hora ? ' · ' + A.esc(w.hora) : '';
+    if (d.getTime() === hoje0.getTime())
+      return '<span class="wov-chip wov-chip-hoje">HOJE' + hora + '</span>';
+    if (d < hoje0)
+      return '<span class="wov-chip wov-chip-atrasada">⚠ ' + txt + ' · ATRASADA</span>';
+    return '<span class="wov-chip wov-d' + d.getDay() + '">' + txt + hora + '</span>';
+  }
+  function badgeVivo(w, hoje0) {
+    if (String(w.status || '') === 'Concluido') return '';
+    if (String(w.status || '') === 'Em andamento')
+      return '<span class="wov-pulse wov-pulse-red">EM ANDAMENTO</span>';
+    var d = A.parseISO(w.data);
+    if (d && d.getTime() === hoje0.getTime())
+      return '<span class="wov-pulse wov-pulse-org">HOJE</span>';
+    if (d && d < hoje0)
+      return '<span class="wov-pulse wov-pulse-org">ATRASADA</span>';
+    return '';
+  }
+  function pagBadgeHtml(w) {
+    if (!w.valor_repasse) return '<span class="badge">sem valor</span>';
+    var pago = Number(w.pago_ao_sub || 0);
+    if (pago >= Number(w.valor_repasse)) return '<span class="badge green">pago ao sub</span>';
+    if (pago > 0) return '<span class="badge orange">parcial ' + A.money(pago) + '</span>';
+    return '<span class="badge red">nao pago</span>';
+  }
+  function botoesHtml(w) {
+    return (telDigitos(w.sub_id) ? '<button class="btn green sm wov-mini" data-wa="' + A.esc(w.id) + '">WhatsApp</button>' : '') +
+      (w.status !== 'Concluido' ? '<button class="btn sec sm wov-mini" data-fin="' + A.esc(w.id) + '">✔ Finalizar</button>' : '');
+  }
+
+  /* ---- card de UMA wo ---- */
+  function cardWo(w, p, hoje0, mods) {
+    p = p || { done: 0, total: 0 };
+    var pct = p.total ? Math.round(100 * p.done / p.total) : 0;
+    return '<a class="card wov-card' + (mods || '') + '" href="#/wo/' + A.esc(w.id) + '">' +
+      '<div class="wov-top">' + chipDia(w, hoje0) + badgeVivo(w, hoje0) +
+      '<span class="grow"></span><span class="badge warm">' + A.esc(w.status || 'A enviar') + '</span></div>' +
+      '<div class="wov-cli">' + A.esc(w.cliente || '—') + '</div>' +
+      '<div class="wov-sv">' + A.esc(A.subNome(w.sub_id)) + ' · ' + A.esc(w.servico || '') +
+      (w.pendencia ? ' <span class="badge yellow">⚠ pendência</span>' : '') + '</div>' +
+      (p.total ? '<div class="row wov-prog"><div class="pbar grow"><i style="width:' + pct + '%"></i></div>' +
+        '<span class="wov-ptx">' + p.done + '/' + p.total + '</span></div>' : '') +
+      '<div class="row wov-foot"><span class="wov-rep">Repasse: ' + A.money(w.valor_repasse) + '</span>' +
+      '<span class="grow"></span>' + botoesHtml(w) + pagBadgeHtml(w) + '</div></a>';
+  }
+
+  /* ---- cartao-mae: varias WOs do MESMO job num card so (fim do card repetido) ---- */
+  function cardGrupo(g, prog, hoje0, mods) {
+    if (g.wos.length === 1) return cardWo(g.wos[0], prog[g.wos[0].id], hoje0, mods);
+    var totalRep = 0, temValor = false;
+    g.wos.forEach(function (w) { if (w.valor_repasse) { totalRep += Number(w.valor_repasse); temValor = true; } });
+    var rows = g.wos.map(function (w) {
+      var p = prog[w.id] || { done: 0, total: 0 };
+      return '<a class="wov-etapa" href="#/wo/' + A.esc(w.id) + '">' +
+        '<div class="wov-e-top">' + chipDia(w, hoje0) + badgeVivo(w, hoje0) +
+        '<span class="grow"></span><span class="badge warm">' + A.esc(w.status || 'A enviar') + '</span></div>' +
+        '<div class="wov-e-sv">' + A.esc(w.servico || '—') + ' <span class="wov-e-sub">· ' + A.esc(A.subNome(w.sub_id)) + '</span>' +
+        (w.pendencia ? ' <span class="badge yellow">⚠ pendência</span>' : '') + '</div>' +
+        '<div class="row wov-e-foot">' +
+        (p.total ? '<span class="wov-ptx">✓ ' + p.done + '/' + p.total + '</span>' : '') +
+        '<span class="wov-rep">' + A.money(w.valor_repasse) + '</span>' +
+        '<span class="grow"></span>' + botoesHtml(w) + pagBadgeHtml(w) + '</div></a>';
+    }).join('');
+    return '<div class="card wov-grupo' + (mods || '') + '">' +
+      '<div class="wov-g-head"><span class="wov-cli">' + A.esc(g.cliente || '—') + '</span>' +
+      '<span class="wov-etapas">' + g.wos.length + ' etapas</span>' + badgeVivo(g.wos[0], hoje0) +
+      '<span class="grow"></span>' + (temValor ? '<span class="wov-rep">Total: ' + A.money(totalRep) + '</span>' : '') +
+      '</div>' + rows + '</div>';
+  }
+
+  /* ---- agrupamento por job + por tempo ---- */
+  function agruparPorJob(list) {
+    var map = {}, ordem = [];
+    list.forEach(function (w) {
+      var k = w.job_id || ('solo-' + w.id);
+      if (!map[k]) { map[k] = { cliente: w.cliente, wos: [] }; ordem.push(k); }
+      if (!map[k].cliente && w.cliente) map[k].cliente = w.cliente;
+      map[k].wos.push(w);
+    });
+    return ordem.map(function (k) { return map[k]; });
+  }
+  function ordenarWos(a, b) {
+    var da = A.parseISO(a.data), db = A.parseISO(b.data);
+    if (da && db && da.getTime() !== db.getTime()) return da - db;
+    if (da && !db) return -1;
+    if (!da && db) return 1;
+    return String(a.hora || '').localeCompare(String(b.hora || ''));
+  }
+  function prioData(d, hoje0, fimSem) {
+    if (!d) return 3;                              // sem data
+    if (d.getTime() <= hoje0.getTime()) return 0;  // hoje ou atrasada
+    if (d <= fimSem) return 1;                     // esta semana
+    return 2;                                      // proximas semanas
+  }
+
+  function secaoHtml(tituloHtml, cls, list, prog, hoje0, fimSem) {
+    if (!list.length) return '';
+    var grupos = agruparPorJob(list);
+    grupos.forEach(function (g) {
+      g.wos.sort(ordenarWos);
+      var minP = 9, minD = null;
+      g.wos.forEach(function (w) {
+        var d = A.parseISO(w.data);
+        var p = prioData(d, hoje0, fimSem);
+        if (p < minP) minP = p;
+        if (d && (!minD || d < minD)) minD = d;
+      });
+      g.prio = minP; g.minD = minD;
+    });
+    grupos.sort(function (a, b) {
+      if (a.prio !== b.prio) return a.prio - b.prio;
+      if (a.minD && b.minD) return a.minD - b.minD;
+      return a.minD ? -1 : (b.minD ? 1 : 0);
+    });
+    var hoje = grupos.filter(function (g) { return g.prio === 0; });
+    var sem = grupos.filter(function (g) { return g.prio === 1; });
+    var prox = grupos.filter(function (g) { return g.prio === 2; });
+    var semData = grupos.filter(function (g) { return g.prio === 3; });
+    var inner = '';
+    if (hoje.length) {
+      inner += '<div class="wov-tg wov-tg-hoje">🔥 HOJE</div>' +
+        hoje.map(function (g) { return cardGrupo(g, prog, hoje0, ' wov-big'); }).join('');
+    }
+    if (sem.length) {
+      inner += '<div class="wov-tg wov-tg-sem">📅 ESTA SEMANA</div>' +
+        sem.map(function (g) { return cardGrupo(g, prog, hoje0, ' wov-med'); }).join('');
+    }
+    if (prox.length) {
+      inner += '<div class="wov-tg wov-tg-prox">⏭️ PRÓXIMAS SEMANAS</div>';
+      var wkAtual = '';
+      prox.forEach(function (g) {
+        var seg = new Date(g.minD); seg.setDate(seg.getDate() - ((seg.getDay() + 6) % 7));
+        var lbl = 'Semana de ' + String(seg.getDate()).padStart(2, '0') + '/' + String(seg.getMonth() + 1).padStart(2, '0');
+        if (lbl !== wkAtual) { wkAtual = lbl; inner += '<div class="wov-wk">' + lbl + '</div>'; }
+        inner += cardGrupo(g, prog, hoje0, ' wov-dim');
+      });
+    }
+    if (semData.length) {
+      inner += '<div class="wov-tg wov-tg-prox">🗓 SEM DATA</div>' +
+        semData.map(function (g) { return cardGrupo(g, prog, hoje0, ' wov-dim'); }).join('');
+    }
+    return '<section class="wov-sec ' + cls + '">' +
+      '<div class="wov-sec-h">' + tituloHtml + '<span class="wov-sec-n">' + list.length + '</span></div>' +
+      inner + '</section>';
   }
 
   function desenharLista(root, wos, prog) {
@@ -227,24 +381,26 @@
         return true;
       });
       var box = document.getElementById('wo-grupos');
-      var grupos = GRUPOS.slice();
-      vis.forEach(function (w) { if (w.status && grupos.indexOf(w.status) < 0) grupos.push(w.status); });
+      var ativas = vis.filter(function (w) { return String(w.status || '') !== 'Concluido'; });
+      var concl = vis.filter(function (w) { return String(w.status || '') === 'Concluido'; });
+      var edu = ativas.filter(function (w) { return String(w.sub_id || '') === 'edu'; });
+      var guys = ativas.filter(function (w) { return String(w.sub_id || '') !== 'edu'; });
+
       var html = '';
-      grupos.forEach(function (g) {
-        var list = vis.filter(function (w) { return (w.status || 'A enviar') === g; });
-        if (!list.length) return;
-        var aberto = abertos[g] !== false;
-        html += '<div class="grp-h" data-grp="' + A.esc(g) + '">' +
-          A.icon(g === 'Concluido' ? 'done' : g === 'Em andamento' ? 'progress' : 'workorders', 17) +
-          ' ' + A.esc(g) + ' <span class="count">' + list.length + '</span>' +
-          '<span class="arr">' + (aberto ? '▲ recolher' : '▼ abrir') + '</span></div>';
-        if (aberto) html += list.map(function (w) { return cardHtml(w, prog[w.id]); }).join('');
-      });
+      html += secaoHtml('👔 EDU — GERENTE', 'wov-sec-edu', edu, prog, hoje0, estaR[1]);
+      html += secaoHtml('👷 GUYS', 'wov-sec-guys', guys, prog, hoje0, estaR[1]);
+      if (concl.length) {
+        concl.sort(function (a, b) { return ordenarWos(b, a); });
+        html += '<div class="grp-h" data-grp="concl">' + A.icon('done', 17) +
+          ' Concluídas <span class="count">' + concl.length + '</span>' +
+          '<span class="arr">' + (conclAberto ? '▲ recolher' : '▼ abrir') + '</span></div>';
+        if (conclAberto) html += concl.map(function (w) { return cardWo(w, prog[w.id], hoje0, ' wov-done'); }).join('');
+      }
       box.innerHTML = html || A.empty('Nenhuma work order aqui', 'Ajusta os filtros ou cria uma nova.', 'workorders');
+
       box.querySelectorAll('.grp-h').forEach(function (h) {
         h.addEventListener('click', function () {
-          var g = h.getAttribute('data-grp');
-          abertos[g] = abertos[g] === false;
+          conclAberto = !conclAberto;
           aplicar();
         });
       });
@@ -272,29 +428,6 @@
     document.getElementById('wf-sub').addEventListener('change', function (ev) { fFiltro.sub = ev.target.value; aplicar(); });
     document.getElementById('wf-sem').addEventListener('change', function (ev) { fFiltro.semana = ev.target.value; aplicar(); });
     aplicar();
-  }
-
-  function cardHtml(w, p) {
-    p = p || { done: 0, total: 0 };
-    var pct = p.total ? Math.round(100 * p.done / p.total) : 0;
-    var pagoOk = w.valor_repasse && Number(w.pago_ao_sub || 0) >= Number(w.valor_repasse);
-    return '<a class="card wo-card" href="#/wo/' + A.esc(w.id) + '">' +
-      '<div class="top"><b style="color:var(--warm)">' + A.esc(w.cliente || '—') + '</b>' +
-      '<span class="muted">' + A.esc(A.fmtDataDia(w.data)) + (w.hora ? ' · ' + A.esc(w.hora) : '') + '</span></div>' +
-      '<div class="muted" style="margin:2px 0 8px">' + A.esc(A.subNome(w.sub_id)) + ' · ' + A.esc(w.servico || '') +
-      (w.pendencia ? ' <span class="badge yellow">⚠ pendência</span>' : '') + '</div>' +
-      (p.total ? '<div class="row" style="gap:8px;margin-bottom:8px"><div class="pbar grow"><i style="width:' + pct + '%"></i></div>' +
-        '<span class="muted" style="font-size:12px">' + p.done + '/' + p.total + '</span></div>' : '') +
-      '<div class="row"><span class="vl" style="font-weight:800;color:var(--warm)">Repasse: ' + A.money(w.valor_repasse) + '</span>' +
-      '<span class="grow"></span>' +
-      (telDigitos(w.sub_id) ? '<button class="btn green sm" data-wa="' + A.esc(w.id) + '" style="min-height:30px;padding:3px 10px;font-size:12px">WhatsApp</button>' : '') +
-      (w.status !== 'Concluido' ? '<button class="btn sec sm" data-fin="' + A.esc(w.id) + '" style="min-height:30px;padding:3px 10px;font-size:12px">✔ Finalizar</button>' : '') +
-      (w.valor_repasse
-        ? (pagoOk ? '<span class="badge green">pago ao sub</span>'
-          : Number(w.pago_ao_sub || 0) > 0 ? '<span class="badge orange">parcial ' + A.money(w.pago_ao_sub) + '</span>'
-            : '<span class="badge red">nao pago</span>')
-        : '<span class="badge">sem valor</span>') +
-      '</div></a>';
   }
 
   /* ======================================================= DETALHE ======= */

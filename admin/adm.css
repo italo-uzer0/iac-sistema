@@ -681,3 +681,118 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
 .pv-vl.green { color: var(--green); }
 .pv-vl.red { color: var(--red); }
 .pv-vl.amber { color: #b57a1e; }
+
+/* ============================================================
+   WOs VIVAS (wo.js) — prefixo .wov- (nao conflita com outros)
+   ============================================================ */
+.wov-sec { margin-bottom: 20px; }
+.wov-sec-h {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 16px; font-weight: 900; letter-spacing: .02em;
+  color: var(--warm); padding: 10px 13px; border-radius: 12px;
+  background: var(--light); margin-bottom: 10px;
+}
+.wov-sec-n {
+  background: var(--orange); color: #fff; border-radius: 999px;
+  font-size: 12px; font-weight: 800; padding: 2px 9px; margin-left: 2px;
+}
+
+/* --- EDU (gerente): painel proprio, dourado sobre marrom --- */
+.wov-sec-edu {
+  border: 2px solid #d9b36a; border-radius: 16px;
+  padding: 10px 10px 4px; margin-bottom: 22px;
+  background: linear-gradient(180deg, #faf3e3, #fffdf8 110px);
+  box-shadow: 0 2px 10px rgba(61, 43, 31, .08);
+}
+.wov-sec-edu .wov-sec-h { background: var(--warm); color: #f2d795; }
+.wov-sec-edu .wov-sec-n { background: #d9b36a; color: var(--warm); }
+.wov-sec-edu .wov-card, .wov-sec-edu .wov-grupo { border-left-color: #d9b36a; }
+
+/* --- titulos dos grupos de tempo (hierarquia forte) --- */
+.wov-tg { display: flex; align-items: center; gap: 6px; font-weight: 900; margin: 14px 2px 8px; }
+.wov-tg-hoje { font-size: 18px; color: var(--red); letter-spacing: .01em; }
+.wov-tg-sem { font-size: 15.5px; color: var(--orange); }
+.wov-tg-prox { font-size: 13.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.wov-wk {
+  font-size: 12px; font-weight: 800; color: var(--warm); text-transform: uppercase;
+  letter-spacing: .05em; margin: 10px 2px 6px; padding-left: 8px;
+  border-left: 3px solid var(--orange);
+}
+
+/* --- card de UMA wo --- */
+.wov-card { display: block; color: inherit; border-left: 4px solid var(--orange); }
+.wov-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 7px; }
+.wov-cli { font-weight: 900; color: var(--warm); font-size: 16.5px; line-height: 1.25; overflow-wrap: anywhere; }
+.wov-sv { font-size: 13.5px; font-weight: 600; color: var(--ink); margin: 3px 0 8px; overflow-wrap: anywhere; }
+.wov-prog { gap: 8px; margin-bottom: 8px; }
+.wov-ptx { font-size: 12px; font-weight: 800; color: var(--warm); white-space: nowrap; }
+.wov-foot { gap: 6px; }
+.wov-rep { font-weight: 800; color: var(--warm); font-size: 14px; white-space: nowrap; }
+.btn.sm.wov-mini { min-height: 32px; padding: 4px 10px; font-size: 12px; }
+
+/* --- HOJE: card GRANDE --- */
+.wov-big { padding: 16px 16px 14px; border-left-width: 6px; border-left-color: var(--red);
+  box-shadow: 0 3px 8px rgba(61, 43, 31, .13), 0 10px 26px rgba(61, 43, 31, .11); }
+.wov-big .wov-cli, .wov-big .wov-g-head .wov-cli { font-size: 20px; }
+.wov-big .wov-sv { font-size: 14.5px; }
+.wov-big > .wov-top > .wov-chip, .wov-big .wov-g-head + .wov-etapa .wov-chip { font-size: 14px; }
+.wov-big .wov-rep { font-size: 16px; }
+
+/* --- proximas semanas: mais discreto, mas legivel --- */
+.wov-dim { padding: 11px 13px; }
+.wov-dim .wov-cli { font-size: 15px; }
+.wov-done { opacity: .72; border-left-color: var(--green); }
+
+/* --- chip de dia: grande, colorido, um tom por dia (paleta warm) --- */
+.wov-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 13px; font-weight: 900; letter-spacing: .02em;
+  border-radius: 9px; padding: 5px 11px; color: #fff; white-space: nowrap;
+}
+.wov-d0 { background: #8E5B8A; }  /* domingo  */
+.wov-d1 { background: #C97B2E; }  /* segunda  */
+.wov-d2 { background: #B8912F; }  /* terca    */
+.wov-d3 { background: #7F9C4F; }  /* quarta   */
+.wov-d4 { background: #3F8F5B; }  /* quinta   */
+.wov-d5 { background: #B85C38; }  /* sexta    */
+.wov-d6 { background: #6B7FB3; }  /* sabado   */
+.wov-chip-hoje { background: var(--orange); }
+.wov-chip-atrasada { background: var(--red); }
+.wov-chip-semdata { background: var(--muted); }
+
+/* --- badge pulsante (EM ANDAMENTO / HOJE / ATRASADA) --- */
+.wov-pulse {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; font-weight: 900; letter-spacing: .05em;
+  border-radius: 999px; padding: 4px 11px; color: #fff; white-space: nowrap;
+}
+.wov-pulse::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%; background: #fff;
+  animation: wov-blink 1.1s ease-in-out infinite;
+}
+.wov-pulse-red { background: var(--red); animation: wov-glow-red 1.6s ease-in-out infinite; }
+.wov-pulse-org { background: var(--orange); animation: wov-glow-org 1.6s ease-in-out infinite; }
+@keyframes wov-blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@keyframes wov-glow-red { 0%, 100% { box-shadow: 0 0 0 0 rgba(193, 67, 47, .45); } 50% { box-shadow: 0 0 0 7px rgba(193, 67, 47, 0); } }
+@keyframes wov-glow-org { 0%, 100% { box-shadow: 0 0 0 0 rgba(212, 114, 42, .45); } 50% { box-shadow: 0 0 0 7px rgba(212, 114, 42, 0); } }
+@media (prefers-reduced-motion: reduce) {
+  .wov-pulse, .wov-pulse::before { animation: none; }
+}
+
+/* --- cartao-mae (grupo de WOs do mesmo job) --- */
+.wov-grupo { border-left: 4px solid var(--orange); }
+.wov-g-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.wov-etapas {
+  background: var(--warm); color: var(--light); border-radius: 999px;
+  font-size: 11.5px; font-weight: 800; padding: 3px 10px; white-space: nowrap;
+}
+.wov-etapa {
+  display: block; color: inherit; padding: 10px 2px 10px 12px;
+  border-top: 1px solid var(--line); margin-top: 8px;
+  border-left: 3px solid var(--line); border-radius: 2px;
+}
+.wov-etapa:active { background: var(--light); }
+.wov-e-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.wov-e-sv { font-size: 13.5px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; }
+.wov-e-sub { color: var(--muted); font-weight: 600; }
+.wov-e-foot { gap: 6px; margin-top: 6px; }
