@@ -98,6 +98,20 @@ body {
 .guy-hero .gline .iac-icon { width: 18px; height: 18px; color: var(--orange-soft); flex: none; }
 .guy-hero .gline a { color: var(--orange-soft); font-weight: 800; text-decoration: underline; }
 
+/* ---------- BOTAO "ADICIONAR A MINHA AGENDA" (Google Calendar) ----------
+   Prefixo gcal- proprio pra nao conflitar. Botao largo SECUNDARIO dentro do
+   hero escuro, logo abaixo da linha de data/hora. */
+.gcal-wrap { padding: 10px 0 6px; border-top: 1px solid rgba(245, 237, 228, .13); }
+.gcal-btn {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  width: 100%; min-height: 48px; padding: 12px 14px;
+  border: 1.5px solid var(--orange-soft); border-radius: 13px;
+  background: rgba(245, 237, 228, .08);
+  color: var(--warm-light); font-size: 14.5px; font-weight: 800;
+  letter-spacing: .03em; text-decoration: none; text-align: center;
+}
+.gcal-btn:active { transform: scale(.98); background: rgba(245, 237, 228, .16); }
+
 .guy-scope { font-size: 15.5px; line-height: 1.55; white-space: pre-wrap; }
 
 /* ---------- PAY CARD (dinheiro DO SUB — repasse; nunca preco do cliente) ---------- */
@@ -867,7 +881,9 @@ window.IAC_CFG = {
       payHistory: 'Pagamentos recebidos', currentStep: 'Você está aqui',
       pendTitle: 'ATENÇÃO — Trabalho com pendência', pendReturn: 'Retorno',
       completeStep: 'Concluir etapa de hoje',
-      callBtn: 'LIGAR PRO ITALO', waBtn: 'WHATSAPP'
+      callBtn: 'LIGAR PRO ITALO', waBtn: 'WHATSAPP',
+      addCal: 'ADICIONAR A MINHA AGENDA',
+      calDetails: 'Dúvida? Italo (848) 234-0283', calLink: 'Seu portal'
     },
     en: {
       yourJob: 'Your job', scope: 'Scope of work', checklist: 'Checklist',
@@ -885,7 +901,9 @@ window.IAC_CFG = {
       payHistory: 'Payments received', currentStep: 'You are here',
       pendTitle: 'ATTENTION — Job has pending work', pendReturn: 'Return visit',
       completeStep: "Finish today's step",
-      callBtn: 'CALL ITALO', waBtn: 'WHATSAPP'
+      callBtn: 'CALL ITALO', waBtn: 'WHATSAPP',
+      addCal: 'ADD TO MY CALENDAR',
+      calDetails: 'Questions? Italo (848) 234-0283', calLink: 'Your portal'
     },
     es: {
       yourJob: 'Tu trabajo', scope: 'Alcance del trabajo', checklist: 'Lista de tareas',
@@ -903,7 +921,9 @@ window.IAC_CFG = {
       payHistory: 'Pagos recibidos', currentStep: 'Estás aquí',
       pendTitle: 'ATENCIÓN — Trabajo con pendiente', pendReturn: 'Regreso',
       completeStep: 'Terminar la etapa de hoy',
-      callBtn: 'LLAMAR A ITALO', waBtn: 'WHATSAPP'
+      callBtn: 'LLAMAR A ITALO', waBtn: 'WHATSAPP',
+      addCal: 'AGREGAR A MI CALENDARIO',
+      calDetails: '¿Dudas? Italo (848) 234-0283', calLink: 'Tu portal'
     }
   };
 
@@ -969,6 +989,15 @@ window.IAC_CFG = {
     }
     h += '<div class="gline">' + ic('schedule', 18) + '<span>' + dateLong(W.data, lang) +
       (W.hora ? ' · ' + esc(W.hora) : '') + '</span></div>';
+    // 📅 ADICIONAR A MINHA AGENDA — so quando a WO tem data. Abre o Google
+    // Calendar pre-preenchido. SUB-SAFE: evento sem NENHUM valor financeiro.
+    if (W.data) {
+      var gcal = gcalUrl(addr);
+      if (gcal) {
+        h += '<div class="gcal-wrap"><a class="gcal-btn" href="' + esc(gcal) +
+          '" target="_blank" rel="noopener">📅 ' + esc(T.addCal) + '</a></div>';
+      }
+    }
     h += '</div>';
 
     // PENDENCIA / TRABALHO PARCIAL — destaque logo abaixo do hero pro sub
@@ -1047,6 +1076,51 @@ window.IAC_CFG = {
 
     bind();
     updateProgress();
+  }
+
+  // Monta o link do Google Calendar pre-preenchido (action=TEMPLATE).
+  // Com hora: inicio na hora da WO, fim +2h (horario "flutuante", sem TZ).
+  // Sem hora: evento de dia inteiro (YYYYMMDD/dia seguinte).
+  // SUB-SAFE: detalhes = servico + contato do Italo + link deste portal.
+  // NUNCA incluir valor de repasse, preco de cliente ou margem no evento.
+  function gcalUrl(addr) {
+    if (!W || !W.data) return null;
+    var d = new Date(W.data + 'T00:00:00');
+    if (isNaN(d)) return null;
+    function p2(n) { return String(n).padStart(2, '0'); }
+    function ymd(dt) { return dt.getFullYear() + p2(dt.getMonth() + 1) + p2(dt.getDate()); }
+
+    var dates;
+    var hm = W.hora ? String(W.hora).match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i) : null;
+    if (hm) {
+      var hh = parseInt(hm[1], 10);
+      var mi = hm[2] ? parseInt(hm[2], 10) : 0;
+      var ap = (hm[3] || '').toLowerCase();
+      if (ap === 'pm' && hh < 12) hh += 12;
+      if (ap === 'am' && hh === 12) hh = 0;
+      if (hh > 23 || mi > 59) hm = null;
+      else {
+        var ini = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mi, 0);
+        var fim = new Date(ini.getTime() + 2 * 60 * 60 * 1000); // +2h
+        dates = ymd(ini) + 'T' + p2(ini.getHours()) + p2(ini.getMinutes()) + '00/' +
+          ymd(fim) + 'T' + p2(fim.getHours()) + p2(fim.getMinutes()) + '00';
+      }
+    }
+    if (!hm) {
+      // dia inteiro: fim exclusivo = dia seguinte
+      var next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+      dates = ymd(d) + '/' + ymd(next);
+    }
+
+    var svc = String(W.servico || 'Job').slice(0, 60);
+    var details = svc + '\n' + T.calDetails + '\n' + T.calLink + ': ' +
+      location.origin + location.pathname + '?t=' + encodeURIComponent(TOKEN);
+
+    return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
+      '&text=' + encodeURIComponent('IAC: ' + svc) +
+      '&dates=' + dates +
+      (addr ? '&location=' + encodeURIComponent(addr) : '') +
+      '&details=' + encodeURIComponent(details);
   }
 
   // Card de pagamento DO SUB: valor_repasse / pago_ao_sub / payments[].
