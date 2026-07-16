@@ -1,8 +1,8 @@
 /* ============================================================================
-   IAC ADMIN v2.1 — precos.js
-   Price book (tabela precos_v2) COMPACTO: tabela densa (13px) com colunas
-   servico | unid | IAC | GC NJ | repasse | min. Filtro por trade em chips
-   horizontais + busca. Toca na linha pra expandir (material / obs / fontes).
+   IAC ADMIN v2.2 — precos.js (VIVO, design system .ds-*)
+   Price book (tabela precos_v2): chips de trade COLORIDOS (uma cor fixa por
+   trade, paleta warm das WOs), linhas com hover, busca com foco vivo.
+   Tabela densa; toca na linha pra expandir (material / obs / fontes).
    IAC, minimo e obs continuam editaveis inline.
    ============================================================================ */
 (function () {
@@ -11,6 +11,14 @@
 
   var busca = '';
   var tradeSel = '';
+
+  // paleta warm por trade (mesma familia dos chips de dia das WOs)
+  var CORES = ['#C97B2E', '#B8912F', '#7F9C4F', '#3F8F5B', '#B85C38', '#6B7FB3', '#8E5B8A'];
+  function tradeCor(t) {
+    var s = String(t || ''), h = 0;
+    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 997;
+    return CORES[h % CORES.length];
+  }
 
   A.pages.precos = {
     render: function (root) {
@@ -28,18 +36,32 @@
     return A.money(min !== null ? min : max) + u;
   }
 
+  function chipStyle(cor, on) {
+    return 'background:' + cor + ';color:#fff;border-color:transparent;' +
+      (on ? 'opacity:1;box-shadow:0 0 0 2px #fff,0 0 0 4px ' + cor + ';' : 'opacity:.55;');
+  }
+
   function desenhar(root, precos) {
     var trades = [];
     precos.forEach(function (p) { if (p.trade && trades.indexOf(p.trade) < 0) trades.push(p.trade); });
 
     root.innerHTML =
-      '<div class="h-page">' + A.icon('precos', 22) + ' Precos <span class="grow"></span>' +
-      '<span class="badge">' + precos.length + ' servicos</span></div>' +
+      // CSS vivo local (hover de linha + foco da busca) — respeita reduced-motion
+      '<style>' +
+      '.ptable tr.prow td{transition:background 120ms ease}' +
+      '.ptable tr.prow:hover td{background:var(--light)}' +
+      '#pf-busca{transition:box-shadow 160ms ease,border-color 160ms ease}' +
+      '#pf-busca:focus{outline:none;border-color:var(--orange);box-shadow:0 0 0 3px rgba(212,114,42,.22)}' +
+      '#p-chips .chip{transition:opacity 140ms ease,box-shadow 140ms ease}' +
+      '@media (prefers-reduced-motion: reduce){.ptable tr.prow td,#pf-busca,#p-chips .chip{transition:none}}' +
+      '</style>' +
+      '<div class="ds-section-h">' + A.icon('precos', 20) + ' Precos <span class="ds-n">' + precos.length + '</span>' +
+      '<span class="grow"></span></div>' +
       '<div class="filters" style="margin-bottom:8px"><input type="search" id="pf-busca" placeholder="Buscar servico… (vinyl, tile, epoxy…)" value="' + A.esc(busca) + '" /></div>' +
       '<div class="chips" id="p-chips">' +
-      '<button class="chip' + (tradeSel === '' ? ' on' : '') + '" data-tr="">Todos</button>' +
+      '<button class="chip ds-chip" data-tr="" style="' + chipStyle('var(--warm)', tradeSel === '') + '">Todos</button>' +
       trades.map(function (t) {
-        return '<button class="chip' + (tradeSel === t ? ' on' : '') + '" data-tr="' + A.esc(t) + '">' + A.esc(t) + '</button>';
+        return '<button class="chip ds-chip" data-tr="' + A.esc(t) + '" style="' + chipStyle(tradeCor(t), tradeSel === t) + '">' + A.esc(t) + '</button>';
       }).join('') +
       '</div>' +
       '<div id="p-lista"></div>';
@@ -59,7 +81,9 @@
       vis.forEach(function (p) {
         if (p.trade !== tradeAtual && !tradeSel) {
           tradeAtual = p.trade;
-          rows += '<tr class="tr-trade"><td colspan="6">' + A.esc(p.trade || 'Outros') + '</td></tr>';
+          rows += '<tr class="tr-trade"><td colspan="6">' +
+            '<span class="ds-chip" style="background:' + tradeCor(p.trade) + ';color:#fff">' + A.esc(p.trade || 'Outros') + '</span>' +
+            '</td></tr>';
         }
         rows +=
           '<tr class="prow" data-pid="' + p.id + '">' +
@@ -138,7 +162,10 @@
       if (!chip) return;
       tradeSel = chip.getAttribute('data-tr') || '';
       document.querySelectorAll('#p-chips .chip').forEach(function (c) {
-        c.classList.toggle('on', c === chip);
+        var t = c.getAttribute('data-tr') || '';
+        var on = (t === tradeSel);
+        c.classList.toggle('on', on);
+        c.setAttribute('style', chipStyle(t === '' ? 'var(--warm)' : tradeCor(t), on));
       });
       aplicar();
     });

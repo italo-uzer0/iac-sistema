@@ -1,7 +1,9 @@
 /* ============================================================================
-   IAC ADMIN v2 — subs.js
-   Cards dos subcontractors: rates, telefone/WhatsApp e total pago no ano
-   (wo_payments via work_orders.sub_id + caixa tipo repasse por pago_para).
+   IAC ADMIN v2.2 — subs.js (VIVO, design system .ds-*)
+   Cards dos subcontractors: .ds-card com hover lift, chip GERENTE dourado no
+   Edu, badge SEM W9 pulsante (.ds-pulse red) quando o sub tem repasse
+   PENDENTE no caixa (cruzado por pago_para), telefone como botoes de acao
+   (Ligar / WhatsApp), total pago no ano com countUp.
    ============================================================================ */
 (function () {
   'use strict';
@@ -27,6 +29,14 @@
     return m ? Number(m[1]) : null;
   }
 
+  function caixaDoSub(c, sub) {
+    if (c.tipo !== 'repasse') return false;
+    var pra = (c.pago_para || '').toLowerCase();
+    if (!pra) return false;
+    var nome = (sub.nome || '').toLowerCase();
+    return pra.indexOf(nome) >= 0 || pra.indexOf(String(sub.id).toLowerCase()) >= 0;
+  }
+
   function desenhar(root, subs, wos, pays, caixa, ano) {
     // wo_id -> sub_id
     var woSub = {};
@@ -39,28 +49,40 @@
         var a = anoDe(p.data);
         if (a === null || a === ano) t += Number(p.valor || 0);
       });
-      var nome = (sub.nome || '').toLowerCase();
       caixa.forEach(function (c) {
-        if (c.tipo !== 'repasse' || c.status !== 'pago') return;
-        var pra = (c.pago_para || '').toLowerCase();
-        if (!pra) return;
-        if (pra.indexOf(nome) < 0 && pra.indexOf(sub.id) < 0) return;
+        if (!caixaDoSub(c, sub) || c.status !== 'pago') return;
         var a = anoDe(c.data);
         if (a === null || a === ano) t += Number(c.valor || 0);
       });
       return t;
     }
 
+    // repasse PENDENTE no caixa (pendente/parcial) — qualquer data
+    function pendente(sub) {
+      var t = 0;
+      caixa.forEach(function (c) {
+        if (!caixaDoSub(c, sub)) return;
+        if (c.status === 'pago') return;
+        t += Number(c.valor || 0);
+      });
+      return t;
+    }
+
     root.innerHTML =
-      '<div class="h-page">' + A.icon('subs', 22) + ' Subs <span class="grow"></span>' +
-      '<span class="badge">' + subs.length + '</span></div>' +
-      (subs.length ? subs.map(function (s) { return cardHtml(s, totalAno(s)); }).join('')
+      '<div class="ds-section-h">' + A.icon('subs', 20) + ' Subs <span class="ds-n">' + subs.length + '</span></div>' +
+      (subs.length ? subs.map(function (s) { return cardHtml(s, totalAno(s), pendente(s), ano); }).join('')
         : A.empty('Nenhum sub cadastrado', 'Cadastra os subs na tabela subs do Supabase.', 'subs'));
 
     root.querySelectorAll('[data-copy-tel]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         A.copiar(btn.getAttribute('data-copy-tel'), 'Telefone copiado!');
       });
+    });
+
+    // total pago no ano sobe animado
+    root.querySelectorAll('[data-countup]').forEach(function (el) {
+      var v = Number(el.getAttribute('data-countup') || 0);
+      if (A.countUp) A.countUp(el, v, '$'); else el.textContent = A.money(v);
     });
   }
 
@@ -71,23 +93,34 @@
     return 'https://wa.me/' + dig;
   }
 
-  function cardHtml(s, total) {
+  function ehGerente(s) {
+    return s.gerente === true || String(s.id).toLowerCase() === 'edu';
+  }
+
+  function cardHtml(s, total, pend, ano) {
     var wa = waLink(s.telefone);
     var rates = Array.isArray(s.rates) ? s.rates : [];
     var regras = s.regras_especiais;
     var ref = s.rates_referencia && typeof s.rates_referencia === 'object' ? s.rates_referencia : null;
     var refItens = ref && Array.isArray(ref.itens) ? ref.itens : [];
+    var temPend = pend > 0;
 
-    return '<div class="card">' +
+    return '<div class="card ds-card">' +
       '<div class="row" style="margin-bottom:4px">' +
       '<b style="font-size:17px;color:var(--warm)">' + A.esc(s.nome) + '</b>' +
+      (ehGerente(s) ? '<span class="ds-chip gold">★ GERENTE</span>' : '') +
       (s.preco_fixo === false ? '<span class="badge orange">orcamento caso a caso</span>' : '<span class="badge green">preco fixo</span>') +
       '<span class="grow"></span>' +
-      '<span class="badge warm">pago ' + new Date().getFullYear() + ': ' + A.money(total) + '</span>' +
+      '<span class="ds-chip warm">pago ' + ano + ': <span data-countup="' + Number(total || 0) + '">' + A.esc(A.money(total)) + '</span></span>' +
       '</div>' +
-      (s.w9 === false || s.seguro === false
+      (s.w9 === false || s.seguro === false || temPend
         ? '<div class="row" style="margin-bottom:6px">' +
-        (s.w9 === false ? '<span class="badge red badge-doc">⚠ SEM W9</span>' : '') +
+        (s.w9 === false
+          ? (temPend
+            ? '<span class="ds-pulse red">⚠ SEM W9 — nao pagar!</span>'
+            : '<span class="badge red badge-doc">⚠ SEM W9</span>')
+          : '') +
+        (temPend ? '<span class="ds-chip red">a pagar: ' + A.esc(A.money(pend)) + '</span>' : '') +
         (s.seguro === false ? '<span class="badge orange badge-doc">sem seguro</span>' : '') +
         '</div>'
         : '') +
@@ -97,9 +130,10 @@
       '</div>' +
       (s.telefone
         ? '<div class="row" style="margin-bottom:10px">' +
-        '<a class="btn sec sm" href="tel:' + A.esc(String(s.telefone).replace(/\s/g, '')) + '">' + A.icon('phone', 15) + ' ' + A.esc(s.telefone) + '</a>' +
+        '<a class="btn sm" href="tel:' + A.esc(String(s.telefone).replace(/\s/g, '')) + '">' + A.icon('phone', 15) + ' Ligar</a>' +
         (wa ? '<a class="btn green sm" href="' + wa + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
-        '<button class="icon-btn" data-copy-tel="' + A.esc(s.telefone) + '" title="copiar">' + A.icon('copy', 16) + '</button>' +
+        '<span class="muted" style="font-size:12.5px">' + A.esc(s.telefone) + '</span>' +
+        '<button class="icon-btn" data-copy-tel="' + A.esc(s.telefone) + '" title="copiar telefone">' + A.icon('copy', 16) + '</button>' +
         '</div>'
         : '<div class="muted" style="margin-bottom:10px">sem telefone cadastrado</div>') +
       (rates.length
@@ -109,7 +143,7 @@
           return '<tr><td>' + A.esc(r.servico || '') + '</td>' +
             '<td><b>' + (r.rate !== undefined && r.rate !== null ? A.esc(A.money(r.rate) + un) : '—') + '</b></td>' +
             '<td>' + (r.client !== undefined && r.client !== null ? A.esc(A.money(r.client) + un) : '—') + '</td>' +
-            '<td style="color:var(--green);font-weight:700">' + (r.margem !== undefined && r.margem !== null ? A.esc(A.money(r.margem) + un) : '—') + '</td></tr>';
+            '<td class="ds-money-pos">' + (r.margem !== undefined && r.margem !== null ? A.esc(A.money(r.margem) + un) : '—') + '</td></tr>';
         }).join('') +
         '</tbody></table></div>'
         : '<div class="muted">Sem tabela de rates — pedir orcamento por video/descricao.</div>') +
