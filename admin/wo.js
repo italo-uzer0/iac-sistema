@@ -480,6 +480,7 @@
       wo.status = 'Concluido';
       return A.avaliarJobDone(wo.job_id);
     }).then(function (res) {
+      A.celebrate();
       if (res.done) {
         A.toast('✔ Trabalho finalizado — job movido pra Done', 'ok');
         notaReviewDone(wo.job_id, wo.cliente, wo.servico);

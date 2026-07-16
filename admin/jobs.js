@@ -151,7 +151,7 @@
         if (r.error) return A.toastErr(r.error);
         job.status = novo;
         A.toast('Movido pra ' + novo, 'ok');
-        if (novo === 'Done') notaReviewDone(job.id, job.cliente, job.tipo_servico);
+        if (novo === 'Done') { A.celebrate(); notaReviewDone(job.id, job.cliente, job.tipo_servico); }
         aplicar();
       });
     }

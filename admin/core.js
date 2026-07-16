@@ -288,6 +288,83 @@
     return '<div class="chart-wrap">' + svg + '</div>';
   }
 
+  // -------------------------------------------------------------- design system "vivo"
+  function motionOff() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+  // Numero que sobe animado (~500ms, tabular-nums). Ex: A.countUp(el, 4200, '$')
+  function countUp(el, valor, prefixo) {
+    if (!el) return;
+    var alvo = Number(valor) || 0;
+    var pre = prefixo || '';
+    var cents = Math.round(Math.abs(alvo) * 100) % 100 !== 0;
+    function fmt(v) {
+      return pre + v.toLocaleString('en-US', { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
+    }
+    el.style.fontVariantNumeric = 'tabular-nums';
+    if (motionOff() || !window.requestAnimationFrame) { el.textContent = fmt(alvo); return; }
+    var t0 = null, DUR = 500;
+    function frame(ts) {
+      if (t0 === null) t0 = ts;
+      var p = Math.min(1, (ts - t0) / DUR);
+      var e = 1 - Math.pow(1 - p, 3); // ease-out cubic
+      if (p < 1) {
+        el.textContent = fmt(alvo * e);
+        requestAnimationFrame(frame);
+      } else {
+        el.textContent = fmt(alvo);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+  // Mini-confete canvas (~1.2s, cores da marca, some sozinho). Usar com moderacao.
+  var celebrando = false;
+  function celebrate() {
+    if (celebrando || motionOff() || !window.requestAnimationFrame) return;
+    celebrando = true;
+    var cv = document.createElement('canvas');
+    cv.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:9999';
+    cv.width = window.innerWidth;
+    cv.height = window.innerHeight;
+    document.body.appendChild(cv);
+    var ctx = cv.getContext('2d');
+    var CORES = ['#D4722A', '#3D2B1F', '#3f8f5b', '#d9b36a'];
+    var parts = [];
+    for (var i = 0; i < 54; i++) {
+      parts.push({
+        x: cv.width * (0.5 + (Math.random() - 0.5) * 0.55),
+        y: cv.height * 0.32,
+        vx: (Math.random() - 0.5) * 9,
+        vy: -(4 + Math.random() * 9),
+        w: 5 + Math.random() * 5,
+        h: 7 + Math.random() * 6,
+        rot: Math.random() * Math.PI,
+        vr: (Math.random() - 0.5) * 0.3,
+        cor: CORES[i % CORES.length]
+      });
+    }
+    var t0 = null, DUR = 1200;
+    function frame(ts) {
+      if (t0 === null) t0 = ts;
+      var p = (ts - t0) / DUR;
+      if (p >= 1 || !cv.isConnected) { cv.remove(); celebrando = false; return; }
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      ctx.globalAlpha = p > 0.7 ? Math.max(0, (1 - p) / 0.3) : 1;
+      for (var k = 0; k < parts.length; k++) {
+        var pt = parts[k];
+        pt.x += pt.vx; pt.y += pt.vy; pt.vy += 0.35; pt.rot += pt.vr;
+        ctx.save();
+        ctx.translate(pt.x, pt.y);
+        ctx.rotate(pt.rot);
+        ctx.fillStyle = pt.cor;
+        ctx.fillRect(-pt.w / 2, -pt.h / 2, pt.w, pt.h);
+        ctx.restore();
+      }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
   // -------------------------------------------------------------- cache (subs/contractors)
   var cache = { subs: [], contractors: [], subById: {}, ctById: {} };
   function carregarCache() {
@@ -411,6 +488,10 @@
     var pg = pages[r.page] || pages.dia || pages.dash;
     var root = document.getElementById('page');
     root.innerHTML = loading();
+    // transicao de pagina (fade+slide-up 180ms) a cada troca de rota
+    root.classList.remove('page-enter');
+    void root.offsetWidth; // reflow: reinicia a animacao
+    root.classList.add('page-enter');
     window.scrollTo(0, 0);
     Promise.resolve(pg.render(root, r.args, r.query)).catch(function (e) {
       root.innerHTML = '<div class="empty">' + icon('blocker', 34) + '<b>Deu erro ao carregar</b>' + esc((e && e.message) || String(e)) + '</div>';
@@ -500,6 +581,7 @@
     fmtData: fmtData, fmtDataDia: fmtDataDia, parseISO: parseISO, weekRange: weekRange,
     debounce: debounce, token32: token32, slug: slug,
     icon: icon, toast: toast, toastErr: toastErr,
+    countUp: countUp, celebrate: celebrate,
     sheet: sheet, sheetOptions: sheetOptions,
     confirmar: confirmar, confirmarDuplo: confirmarDuplo,
     copiar: copiar,

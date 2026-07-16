@@ -697,6 +697,7 @@
           btn.disabled = false;
           if (r.error) return A.toastErr(r.error);
           j.status = ST.SCHEDULE;
+          A.celebrate();
           A.toast('FECHOU! 🎉 ' + (j.cliente || 'Job') + ' movido pra Schedule' + (dt ? ' — projeto ' + A.fmtData(dt) : ''), 'ok');
           rerender();
         }).catch(function (e) { btn.disabled = false; A.toastErr(e); });
@@ -809,6 +810,7 @@
         A.sb.from('caixa').update({ status: 'pago', data: A.hoje() }).eq('id', id).then(function (r) {
           if (r.error) { btn.disabled = false; return A.toastErr(r.error); }
           c.status = 'pago'; c.data = A.hoje();
+          A.celebrate();
           A.toast('Recebido de ' + (c.cliente || 'cliente') + ' ✓', 'ok');
           rerender();
         }).catch(function (e) { btn.disabled = false; A.toastErr(e); });

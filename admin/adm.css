@@ -796,3 +796,122 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
 .wov-e-sv { font-size: 13.5px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; }
 .wov-e-sub { color: var(--muted); font-weight: 600; }
 .wov-e-foot { gap: 6px; margin-top: 6px; }
+
+/* ============================================================
+   DESIGN SYSTEM "VIVO" — prefixo .ds- (base compartilhada)
+   Padrao aprovado nas WOs: chips de dia coloridos, badges
+   pulsantes, headers fortes, cards com vida. Reutilizavel em
+   qualquer view do admin. Mobile-first.
+   ============================================================ */
+
+/* --- chip generico vivo --- */
+.ds-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12.5px; font-weight: 800; letter-spacing: .02em;
+  border-radius: 999px; padding: 4px 11px;
+  background: var(--light); color: var(--warm); white-space: nowrap;
+}
+.ds-chip.orange { background: var(--orange); color: #fff; }
+.ds-chip.green { background: var(--green); color: #fff; }
+.ds-chip.red { background: var(--red); color: #fff; }
+.ds-chip.warm { background: var(--warm); color: var(--light); }
+.ds-chip.gold { background: #d9b36a; color: var(--warm); }
+
+/* --- chip de dia (mesma paleta warm dos .wov-d*, um tom por dia) --- */
+.ds-chip-day {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 13px; font-weight: 900; letter-spacing: .02em;
+  border-radius: 9px; padding: 5px 11px; color: #fff; white-space: nowrap;
+}
+.ds-chip-day.d0 { background: #8E5B8A; }  /* domingo  */
+.ds-chip-day.d1 { background: #C97B2E; }  /* segunda  */
+.ds-chip-day.d2 { background: #B8912F; }  /* terca    */
+.ds-chip-day.d3 { background: #7F9C4F; }  /* quarta   */
+.ds-chip-day.d4 { background: #3F8F5B; }  /* quinta   */
+.ds-chip-day.d5 { background: #B85C38; }  /* sexta    */
+.ds-chip-day.d6 { background: #6B7FB3; }  /* sabado   */
+.ds-chip-day.hoje { background: var(--orange); }
+.ds-chip-day.atrasada { background: var(--red); }
+.ds-chip-day.semdata { background: var(--muted); }
+
+/* --- badge pulsante reutilizavel (reaproveita keyframes wov-*) --- */
+.ds-pulse {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; font-weight: 900; letter-spacing: .05em;
+  border-radius: 999px; padding: 4px 11px; color: #fff; white-space: nowrap;
+  background: var(--orange); animation: wov-glow-org 1.6s ease-in-out infinite;
+}
+.ds-pulse::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%; background: #fff;
+  animation: wov-blink 1.1s ease-in-out infinite;
+}
+.ds-pulse.red { background: var(--red); animation: wov-glow-red 1.6s ease-in-out infinite; }
+.ds-pulse.green { background: var(--green); animation: none; }
+
+/* --- card vivo: hover lift + press scale, 160ms --- */
+.ds-card {
+  transition: transform 160ms ease, box-shadow 160ms ease;
+  will-change: transform;
+}
+.ds-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(61, 43, 31, .13), 0 12px 28px rgba(61, 43, 31, .11);
+}
+.ds-card:active { transform: scale(.985); }
+
+/* --- header de secao (padrao WOs: icone + titulo forte + contador) --- */
+.ds-section-h {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 16px; font-weight: 900; letter-spacing: .02em;
+  color: var(--warm); padding: 10px 13px; border-radius: 12px;
+  background: var(--light); margin-bottom: 10px;
+}
+.ds-section-h .ds-n {
+  background: var(--orange); color: #fff; border-radius: 999px;
+  font-size: 12px; font-weight: 800; padding: 2px 9px; margin-left: 2px;
+}
+.ds-section-h.gold { background: var(--warm); color: #f2d795; }
+.ds-section-h.gold .ds-n { background: #d9b36a; color: var(--warm); }
+
+/* --- hero vivo (gradiente warm sutil) --- */
+.ds-hero {
+  border-radius: 16px; padding: 16px 14px;
+  background: linear-gradient(135deg, #faf3e8, #ffffff 55%, #fdf1e6);
+  border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+
+/* --- barra de progresso animada --- */
+.ds-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.ds-bar > i {
+  display: block; height: 100%; border-radius: 999px; background: var(--orange);
+  width: 0; transition: width .6s cubic-bezier(.22, 1, .36, 1);
+}
+.ds-bar.green > i { background: var(--green); }
+.ds-bar.red > i { background: var(--red); }
+
+/* --- dinheiro --- */
+.ds-money-pos { color: var(--green); font-weight: 800; font-variant-numeric: tabular-nums; }
+.ds-money-neg { color: var(--red); font-weight: 800; font-variant-numeric: tabular-nums; }
+
+/* --- skeleton shimmer de carregamento --- */
+.ds-skel {
+  border-radius: 10px; color: transparent; min-height: 14px;
+  background: linear-gradient(90deg, var(--light) 25%, #fffdf8 50%, var(--light) 75%);
+  background-size: 200% 100%;
+  animation: ds-shimmer 1.2s linear infinite;
+}
+@keyframes ds-shimmer { to { background-position: -200% 0; } }
+
+/* --- transicao de pagina (aplicada pelo router no container da view) --- */
+.page-enter { animation: ds-page-in 180ms ease-out; }
+@keyframes ds-page-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* --- reduced motion: desliga TUDO do design system --- */
+@media (prefers-reduced-motion: reduce) {
+  .ds-pulse, .ds-pulse::before, .ds-skel, .page-enter { animation: none; }
+  .ds-card, .ds-bar > i { transition: none; }
+  .ds-card:hover, .ds-card:active { transform: none; }
+}
