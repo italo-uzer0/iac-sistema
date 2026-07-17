@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>IAC — Minha Agenda</title>
+<style>
+  :root{
+    --bg:#F5EDE4; --card:#fff; --ink:#3D2B1F; --ink2:#7a6650; --orange:#D4722A;
+    --line:#e7d9c8; --shadow:0 2px 10px rgba(61,43,31,.08); --radius:16px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:var(--bg);color:var(--ink);padding:0 0 40px;line-height:1.4}
+  .top{background:var(--ink);color:#F5EDE4;padding:16px 18px;display:flex;align-items:center;gap:12px;
+    position:sticky;top:0;z-index:5;box-shadow:0 2px 12px rgba(0,0,0,.18)}
+  .top .logo{width:44px;height:44px;border-radius:10px;background:#fff;display:grid;place-items:center;
+    font-weight:900;color:var(--ink);font-size:13px;letter-spacing:-.5px}
+  .top h1{font-size:17px;margin:0;font-weight:800}
+  .top .sub{font-size:12.5px;color:#e9c9a8;font-weight:600;margin-top:1px}
+  .wrap{max-width:640px;margin:0 auto;padding:16px 14px 0}
+  .demo{background:#fff7ed;border:1px solid var(--orange);color:#a3521a;border-radius:12px;
+    padding:9px 13px;font-size:12.5px;font-weight:600;margin-bottom:14px;text-align:center}
+  .sec-title{font-size:12.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;
+    color:var(--ink2);margin:22px 4px 10px;display:flex;align-items:center;gap:8px}
+  .sec-title.hoje{color:var(--orange)}
+  .sec-title .pill{background:var(--orange);color:#fff;border-radius:20px;padding:2px 9px;font-size:11px}
+  .day{margin-bottom:14px}
+  .day-h{font-size:13px;font-weight:800;color:var(--ink);margin:0 4px 7px;display:flex;
+    align-items:center;gap:8px}
+  .day-h .dow{color:var(--orange);text-transform:uppercase;letter-spacing:.5px}
+  .day-h .empty{color:var(--ink2);font-weight:600;font-size:12px}
+  a.card{display:block;text-decoration:none;color:inherit;background:var(--card);border-radius:var(--radius);
+    box-shadow:var(--shadow);border:1px solid var(--line);border-left:6px solid var(--c,#8a7a6a);
+    padding:13px 15px;margin-bottom:9px;transition:transform .12s ease, box-shadow .12s ease}
+  a.card:active{transform:scale(.985)}
+  .card .r1{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+  .card .cli{font-size:15.5px;font-weight:800;color:var(--ink)}
+  .card .time{font-size:13px;font-weight:800;color:var(--c,#8a7a6a);white-space:nowrap}
+  .card .svc{font-size:13px;color:var(--ink2);margin-top:3px;font-weight:500}
+  .card .r3{display:flex;align-items:center;gap:8px;margin-top:9px;flex-wrap:wrap}
+  .chip{font-size:11.5px;font-weight:700;border-radius:20px;padding:3px 9px}
+  .chip.city{background:#f1e7da;color:#7a6650}
+  .chip.st{background:#eef4ee;color:#3f7a4b}
+  .chip.st.and{background:#fff4e6;color:#a3521a}
+  .chip.val{background:#eaf3f2;color:#1f7a6e;margin-left:auto}
+  .prog{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink2);font-weight:700}
+  .prog .bar{width:54px;height:6px;border-radius:6px;background:#eee3d5;overflow:hidden}
+  .prog .bar i{display:block;height:100%;background:var(--c,#8a7a6a);border-radius:6px}
+  .arrow{color:var(--orange);font-weight:900;margin-left:2px}
+  .empty-state{text-align:center;color:var(--ink2);padding:50px 20px;font-weight:600}
+  .foot{max-width:640px;margin:26px auto 0;padding:0 14px;text-align:center;font-size:12px;color:var(--ink2)}
+  .foot a{color:var(--orange);font-weight:700;text-decoration:none}
+  .load{text-align:center;padding:60px 20px;color:var(--ink2);font-weight:600}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#241a12;--card:#31241a;--ink:#f3e7d8;--ink2:#c3ab90;--line:#463527}
+    .demo{background:#3a2a18}
+    .chip.city{background:#463527;color:#d8c3a8}
+  }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="logo">IAC</div>
+    <div><h1 id="who">Minha Agenda</h1><div class="sub">IAC Home Improvement</div></div>
+  </div>
+  <div class="wrap" id="view"><div class="load">Carregando sua agenda…</div></div>
+  <div class="foot">Dúvida? <a href="tel:+18482340283">Ligar pro Italo (848) 234-0283</a></div>
+
+<script>
+const CFG = { url:"https://riceqxgudaziragogfxm.supabase.co", anon:"sb_publishable_cHJJEI3rzVQmMM8j5I3WDg_N4yf6Irq" };
+
+function token(){ var m=location.search.match(/[?&]t=([^&]+)/); return m?decodeURIComponent(m[1]):null; }
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+
+// cor por tipo de servico
+function svcColor(s){ s=(s||'').toLowerCase();
+  if(/roteiro|estimate|dia do edu|visita|quote|primeiro/.test(s)) return '#7c5cbf';
+  if(/sand|refinish|s&r|lixa/.test(s)) return '#D4722A';
+  if(/vinyl|laminate|lvp|piso vinil/.test(s)) return '#2a9d8f';
+  if(/hardwood|wood|madeira|engineered/.test(s)) return '#8a5a2b';
+  if(/tile|ceramic|azulejo|banheiro|kitchen|cozinha/.test(s)) return '#3a7ca5';
+  if(/deck/.test(s)) return '#4a9d5b';
+  if(/repair|warranty|garantia|reparo|bubble|conserto/.test(s)) return '#c0392b';
+  if(/paint|pintura|cabinet/.test(s)) return '#c99a2e';
+  return '#8a7a6a';
+}
+function money(n){ if(n==null) return null; var v=Number(n); return '$'+v.toLocaleString('en-US',{minimumFractionDigits:v%1?2:0,maximumFractionDigits:2}); }
+function ymd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+const DOW=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+function fmtDay(s){ var d=new Date(s+'T00:00:00'); return DOW[d.getDay()]+' '+String(d.getMonth()+1).padStart(2,'0')+'/'+String(d.getDate()).padStart(2,'0'); }
+
+async function load(){
+  var t=token();
+  var data=null;
+  if(t){
+    try{
+      var r=await fetch(CFG.url+'/rest/v1/rpc/guy_agenda',{method:'POST',
+        headers:{'apikey':CFG.anon,'Authorization':'Bearer '+CFG.anon,'Content-Type':'application/json'},
+        body:JSON.stringify({p_token:t})});
+      if(r.ok){ var j=await r.json(); if(j&&j.sub) data=j; }
+    }catch(e){}
+  }
+  if(!data) data=DEMO();  // sem token/RPC ainda -> mostra exemplo
+  render(data, !t || data._demo);
+}
+
+function render(data, isDemo){
+  document.getElementById('who').textContent = 'Agenda — ' + (data.sub&&data.sub.nome || 'Guy');
+  var wos=(data.wos||[]).slice().filter(w=>w.data).sort((a,b)=> (a.data+ (a.hora||'')).localeCompare(b.data+(b.hora||'')));
+  var today=ymd(new Date());
+  // fim da semana (domingo)
+  var td=new Date(today+'T00:00:00'); var endWeek=new Date(td); endWeek.setDate(td.getDate()+(7-td.getDay())%7); var ew=ymd(endWeek);
+
+  var hoje=wos.filter(w=>w.data===today);
+  var semana=wos.filter(w=>w.data>today && w.data<=ew);
+  var futuros=wos.filter(w=>w.data>ew);
+  var passados=wos.filter(w=>w.data<today);
+
+  var h='';
+  if(isDemo) h+='<div class="demo">👀 PRÉVIA (dados de exemplo) — vira a agenda real de cada guy quando ativar</div>';
+
+  if(hoje.length){ h+='<div class="sec-title hoje">🔥 Hoje <span class="pill">'+hoje.length+'</span></div>';
+    hoje.forEach(w=>h+=card(w)); }
+
+  // esta semana, agrupado por dia
+  if(semana.length){
+    h+='<div class="sec-title">📅 Esta semana</div>';
+    var byDay={}; semana.forEach(w=>{(byDay[w.data]=byDay[w.data]||[]).push(w);});
+    Object.keys(byDay).sort().forEach(d=>{
+      h+='<div class="day"><div class="day-h"><span class="dow">'+esc(fmtDay(d))+'</span></div>';
+      byDay[d].forEach(w=>h+=card(w)); h+='</div>';
+    });
+  }
+
+  // proximas semanas / meses
+  if(futuros.length){
+    h+='<div class="sec-title">⏭️ Próximos trabalhos</div>';
+    var byDayF={}; futuros.forEach(w=>{(byDayF[w.data]=byDayF[w.data]||[]).push(w);});
+    Object.keys(byDayF).sort().forEach(d=>{
+      h+='<div class="day"><div class="day-h"><span class="dow">'+esc(fmtDay(d))+'</span></div>';
+      byDayF[d].forEach(w=>h+=card(w)); h+='</div>';
+    });
+  }
+
+  if(passados.length){
+    h+='<div class="sec-title">✅ Anteriores</div>';
+    passados.slice(-6).reverse().forEach(w=>h+=card(w,true));
+  }
+
+  if(!wos.length) h='<div class="empty-state">Nenhum trabalho agendado ainda.<br>Quando o Italo agendar, aparece aqui.</div>';
+  document.getElementById('view').innerHTML=h;
+}
+
+function card(w, faded){
+  var c=svcColor(w.servico);
+  var val=money(w.valor_repasse);
+  var st=(w.status||'').toLowerCase();
+  var stCls = /conclu|done/.test(st)?'st':(/andamento|enviado/.test(st)?'st and':'st');
+  var prog='';
+  if(w.n_itens){ var pct=Math.round((w.n_feitos||0)/w.n_itens*100);
+    prog='<span class="prog"><span class="bar"><i style="width:'+pct+'%"></i></span>'+(w.n_feitos||0)+'/'+w.n_itens+'</span>'; }
+  var href = w.token ? ('guy.html?t='+encodeURIComponent(w.token)) : '#';
+  return '<a class="card" href="'+href+'" style="--c:'+c+'"'+(faded?' style="opacity:.7"':'')+'>'+
+    '<div class="r1"><span class="cli">'+esc(w.cliente||'—')+'</span><span class="time">'+esc(w.hora||'')+'</span></div>'+
+    '<div class="svc">'+esc((w.servico||'').slice(0,90))+'</div>'+
+    '<div class="r3">'+
+      (w.cidade_st?'<span class="chip city">📍 '+esc(w.cidade_st)+'</span>':'')+
+      '<span class="chip '+stCls+'">'+esc(w.status||'')+'</span>'+
+      prog+
+      (val?'<span class="chip val">💰 '+esc(val)+'</span>':'')+
+      '<span class="arrow">›</span>'+
+    '</div></a>';
+}
+
+// dados de exemplo (preview) — some quando o RPC real responde
+function DEMO(){ return { _demo:true, sub:{nome:'Eduardo (Gerente)',idioma:'pt'}, wos:[
+  {token:'demo1',cliente:'Dia do Edu 20/07',cidade_st:'Somerset + Keasbey',data:'2026-07-20',hora:'9:00 AM',servico:'ROTEIRO: 2 paradas — pickup Jun Mallari + estimate Aaron Murray',status:'A enviar',valor_repasse:null,n_itens:10,n_feitos:0},
+  {token:'demo2',cliente:'Dia do Edu 21/07',cidade_st:'Toms River',data:'2026-07-21',hora:'10:00 AM',servico:'ROTEIRO: 1 parada — estimate Linda Larsen',status:'A enviar',valor_repasse:null,n_itens:7,n_feitos:0},
+  {token:'demo3',cliente:'Dia do Edu 22/07',cidade_st:'Toms River',data:'2026-07-22',hora:'8:00 AM',servico:'ROTEIRO: 2 paradas — inicio + final S&R Chris Felton',status:'A enviar',valor_repasse:null,n_itens:9,n_feitos:0},
+  {token:'demo4',cliente:'Dia do Edu 23/07',cidade_st:'Brooklyn NY',data:'2026-07-23',hora:'9:00 AM',servico:'ROTEIRO: 1 parada — estimate Alan Levy',status:'A enviar',valor_repasse:null,n_itens:7,n_feitos:0}
+]};}
+
+load();
+</script>
+</body>
+</html>
