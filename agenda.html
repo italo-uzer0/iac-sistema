@@ -12,7 +12,7 @@
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
     background:var(--bg);color:var(--ink);padding:0 0 40px;line-height:1.4}
-  .top{background:var(--ink);color:#F5EDE4;padding:16px 18px;display:flex;align-items:center;gap:12px;
+  .top{background:#3D2B1F;color:#F5EDE4;padding:16px 18px;display:flex;align-items:center;gap:12px;
     position:sticky;top:0;z-index:5;box-shadow:0 2px 12px rgba(0,0,0,.18)}
   .top .logo{width:44px;height:44px;border-radius:10px;background:#fff;display:grid;place-items:center;
     font-weight:900;color:var(--ink);font-size:13px;letter-spacing:-.5px}
@@ -154,7 +154,7 @@ function render(data, isDemo){
 
 function card(w, faded){
   var c=svcColor(w.servico);
-  var val=money(w.valor_repasse);
+  var val=(w.valor_repasse!=null && Number(w.valor_repasse)>0)?money(w.valor_repasse):null;
   var st=(w.status||'').toLowerCase();
   var stCls = /conclu|done/.test(st)?'st':(/andamento|enviado/.test(st)?'st and':'st');
   var prog='';
