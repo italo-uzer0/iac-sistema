@@ -181,7 +181,7 @@
   /* WOs "VIVAS": secao do EDU (gerente) no topo, depois GUYS; dentro de cada
      secao agrupado por TEMPO (🔥 HOJE / 📅 ESTA SEMANA / ⏭️ PROXIMAS SEMANAS /
      SEM DATA) e WOs do MESMO job agrupadas num cartao-mae do cliente. */
-  var fFiltro = { sub: '', semana: '' };
+  var fFiltro = { sub: '', semana: '', vista: 'dia' }; // vista: 'dia' (por quando) | 'guy' (por quem)
   var conclAberto = false;
 
   var DIAS3 = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'];
@@ -203,16 +203,42 @@
   }
 
   /* ---- pecas visuais ---- */
+
+  /* cor fixa por guy: o mesmo sub tem SEMPRE a mesma cor, pra bater o olho e saber quem e */
+  var GUY_CORES = ['#D4722A', '#2E7D6B', '#8E44AD', '#2C6FA8', '#B03A48', '#7A6220', '#4A6FA5', '#A0522D'];
+  function guyCor(id) {
+    var s = String(id || ''), h = 0;
+    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return GUY_CORES[h % GUY_CORES.length];
+  }
+  function guyIniciais(nome) {
+    var p = String(nome || '?').trim().split(/\s+/);
+    return ((p[0] || '?')[0] + (p.length > 1 ? p[1][0] : '')).toUpperCase();
+  }
+  /* chip do guy: bolinha colorida + nome em negrito. É a informação que o Italo mais procura. */
+  function guyChip(subId, mods) {
+    var nome = A.subNome(subId) || '—';
+    var ehEdu = String(subId || '') === 'edu';
+    var cor = ehEdu ? '#3D2B1F' : guyCor(subId);
+    return '<span class="wov-guy' + (mods || '') + '">' +
+      '<span class="wov-guy-av" style="background:' + cor + '">' + A.esc(guyIniciais(nome)) + '</span>' +
+      '<span class="wov-guy-nm">' + A.esc(nome) + (ehEdu ? ' <span class="wov-guy-tag">gerente</span>' : '') + '</span></span>';
+  }
+
   function chipDia(w, hoje0) {
     var d = A.parseISO(w.data);
     if (!d) return '<span class="wov-chip wov-chip-semdata">SEM DATA</span>';
     var txt = DIAS3[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0');
     var hora = w.hora ? ' · ' + A.esc(w.hora) : '';
-    if (d.getTime() === hoje0.getTime())
-      return '<span class="wov-chip wov-chip-hoje">HOJE' + hora + '</span>';
-    if (d < hoje0)
-      return '<span class="wov-chip wov-chip-atrasada">⚠ ' + txt + ' · ATRASADA</span>';
-    return '<span class="wov-chip wov-d' + d.getDay() + '">' + txt + hora + '</span>';
+    var dias = Math.round((d - hoje0) / 86400000);
+    if (dias === 0) return '<span class="wov-chip wov-chip-hoje">HOJE' + hora + '</span>';
+    if (dias === 1) return '<span class="wov-chip wov-chip-amanha">AMANHÃ · ' + txt + hora + '</span>';
+    if (d < hoje0) {
+      var atras = Math.abs(dias);
+      return '<span class="wov-chip wov-chip-atrasada">⚠ ' + txt + ' · ATRASADA ' + atras + 'd</span>';
+    }
+    var falta = dias <= 7 ? ' <span class="wov-chip-em">em ' + dias + 'd</span>' : '';
+    return '<span class="wov-chip wov-d' + d.getDay() + '">' + txt + hora + falta + '</span>';
   }
   function badgeVivo(w, hoje0) {
     if (String(w.status || '') === 'Concluido') return '';
@@ -245,7 +271,8 @@
       '<div class="wov-top">' + chipDia(w, hoje0) + badgeVivo(w, hoje0) +
       '<span class="grow"></span><span class="badge warm">' + A.esc(w.status || 'A enviar') + '</span></div>' +
       '<div class="wov-cli">' + A.esc(w.cliente || '—') + '</div>' +
-      '<div class="wov-sv">' + A.esc(A.subNome(w.sub_id)) + ' · ' + A.esc(w.servico || '') +
+      guyChip(w.sub_id) +
+      '<div class="wov-sv">' + A.esc(w.servico || '') +
       (w.pendencia ? ' <span class="badge yellow">⚠ pendência</span>' : '') + '</div>' +
       (p.total ? '<div class="row wov-prog"><div class="pbar grow"><i style="width:' + pct + '%"></i></div>' +
         '<span class="wov-ptx">' + p.done + '/' + p.total + '</span></div>' : '') +
@@ -261,9 +288,9 @@
     var rows = g.wos.map(function (w) {
       var p = prog[w.id] || { done: 0, total: 0 };
       return '<a class="wov-etapa" href="#/wo/' + A.esc(w.id) + '">' +
-        '<div class="wov-e-top">' + chipDia(w, hoje0) + badgeVivo(w, hoje0) +
+        '<div class="wov-e-top">' + chipDia(w, hoje0) + guyChip(w.sub_id, ' wov-guy-sm') + badgeVivo(w, hoje0) +
         '<span class="grow"></span><span class="badge warm">' + A.esc(w.status || 'A enviar') + '</span></div>' +
-        '<div class="wov-e-sv">' + A.esc(w.servico || '—') + ' <span class="wov-e-sub">· ' + A.esc(A.subNome(w.sub_id)) + '</span>' +
+        '<div class="wov-e-sv">' + A.esc(w.servico || '—') +
         (w.pendencia ? ' <span class="badge yellow">⚠ pendência</span>' : '') + '</div>' +
         '<div class="row wov-e-foot">' +
         (p.total ? '<span class="wov-ptx">✓ ' + p.done + '/' + p.total + '</span>' : '') +
@@ -353,10 +380,57 @@
       inner + '</section>';
   }
 
+  /* ---- VISTA POR GUY: uma faixa por pessoa, com o que ela tem pela frente ---- */
+  function secaoPorGuy(list, prog, hoje0) {
+    if (!list.length) return '';
+    var porSub = {}, ordem = [];
+    list.forEach(function (w) {
+      var k = String(w.sub_id || '__sem');
+      if (!porSub[k]) { porSub[k] = []; ordem.push(k); }
+      porSub[k].push(w);
+    });
+    // quem tem trabalho mais cedo aparece primeiro
+    ordem.sort(function (a, b) {
+      var da = porSub[a].map(function (w) { return A.parseISO(w.data); }).filter(Boolean).sort(function (x, y) { return x - y; })[0];
+      var db = porSub[b].map(function (w) { return A.parseISO(w.data); }).filter(Boolean).sort(function (x, y) { return x - y; })[0];
+      if (da && db) return da - db;
+      return da ? -1 : (db ? 1 : 0);
+    });
+    return ordem.map(function (k) {
+      var ws = porSub[k].slice().sort(ordenarWos);
+      var tot = 0, temV = false;
+      ws.forEach(function (w) { if (w.valor_repasse) { tot += Number(w.valor_repasse); temV = true; } });
+      var aPagar = 0;
+      ws.forEach(function (w) { aPagar += Math.max(0, Number(w.valor_repasse || 0) - Number(w.pago_ao_sub || 0)); });
+      var sub = (A.cache.subs || []).filter(function (s) { return s.id === k; })[0];
+      var semW9 = sub && sub.w9 === false ? ' <span class="badge red">⚠ SEM W9</span>' : '';
+      var linhas = ws.map(function (w) {
+        var p = prog[w.id] || { done: 0, total: 0 };
+        return '<a class="wov-gl" href="#/wo/' + A.esc(w.id) + '">' +
+          '<span class="wov-gl-d">' + chipDia(w, hoje0) + '</span>' +
+          '<span class="wov-gl-c">' + A.esc(w.cliente || '—') +
+          '<span class="wov-gl-s">' + A.esc(String(w.servico || '').slice(0, 90)) + '</span></span>' +
+          (p.total ? '<span class="wov-ptx">✓' + p.done + '/' + p.total + '</span>' : '') +
+          '<span class="wov-rep">' + A.money(w.valor_repasse) + '</span>' +
+          pagBadgeHtml(w) + '</a>';
+      }).join('');
+      return '<div class="card wov-guycard">' +
+        '<div class="wov-guyhead">' + guyChip(k, ' wov-guy-big') + semW9 +
+        '<span class="grow"></span>' +
+        '<span class="wov-guyn">' + ws.length + (ws.length === 1 ? ' trabalho' : ' trabalhos') + '</span>' +
+        (temV ? '<span class="wov-rep">' + A.money(tot) + (aPagar > 0 ? ' <span class="wov-apagar">(' + A.money(aPagar) + ' a pagar)</span>' : '') + '</span>' : '') +
+        '</div>' + linhas + '</div>';
+    }).join('');
+  }
+
   function desenharLista(root, wos, prog) {
     root.innerHTML =
       '<div class="h-page">' + A.icon('workorders', 22) + ' Work Orders <span class="grow"></span>' +
       '<a class="btn sm" href="#/wo/nova">+ Nova</a></div>' +
+      '<div class="wov-vista">' +
+      '<button class="wov-vb' + (fFiltro.vista === 'dia' ? ' on' : '') + '" data-vista="dia">📅 Por dia</button>' +
+      '<button class="wov-vb' + (fFiltro.vista === 'guy' ? ' on' : '') + '" data-vista="guy">👷 Por guy</button>' +
+      '</div>' +
       '<div class="filters">' +
       '<select id="wf-sub"><option value="">Todos os subs</option>' +
       A.cache.subs.map(function (s) { return '<option value="' + A.esc(s.id) + '"' + (fFiltro.sub === s.id ? ' selected' : '') + '>' + A.esc(s.nome) + '</option>'; }).join('') +
@@ -387,8 +461,12 @@
       var guys = ativas.filter(function (w) { return String(w.sub_id || '') !== 'edu'; });
 
       var html = '';
-      html += secaoHtml('👔 EDU — GERENTE', 'wov-sec-edu', edu, prog, hoje0, estaR[1]);
-      html += secaoHtml('👷 GUYS', 'wov-sec-guys', guys, prog, hoje0, estaR[1]);
+      if (fFiltro.vista === 'guy') {
+        html += secaoPorGuy(ativas, prog, hoje0);
+      } else {
+        html += secaoHtml('👔 EDU — GERENTE', 'wov-sec-edu', edu, prog, hoje0, estaR[1]);
+        html += secaoHtml('👷 GUYS', 'wov-sec-guys', guys, prog, hoje0, estaR[1]);
+      }
       if (concl.length) {
         concl.sort(function (a, b) { return ordenarWos(b, a); });
         html += '<div class="grp-h" data-grp="concl">' + A.icon('done', 17) +
@@ -401,6 +479,15 @@
       box.querySelectorAll('.grp-h').forEach(function (h) {
         h.addEventListener('click', function () {
           conclAberto = !conclAberto;
+          aplicar();
+        });
+      });
+      document.querySelectorAll('[data-vista]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          fFiltro.vista = b.getAttribute('data-vista');
+          document.querySelectorAll('[data-vista]').forEach(function (x) {
+            x.classList.toggle('on', x.getAttribute('data-vista') === fFiltro.vista);
+          });
           aplicar();
         });
       });
@@ -418,7 +505,17 @@
           ev.preventDefault(); ev.stopPropagation();
           var w = wos.filter(function (x) { return x.id === btn.getAttribute('data-fin'); })[0];
           if (!w) return;
-          if (!A.confirmar('Finalizar o trabalho da WO de "' + (w.cliente || w.id) + '"? A WO some da tela principal e o job vai pra Done se os valores estiverem completos.')) return;
+          // guarda: WO com data FUTURA quase sempre e clique sem querer
+          var dW = A.parseISO(w.data);
+          var h0 = new Date(); h0.setHours(0, 0, 0, 0);
+          if (dW && dW > h0) {
+            var qdias = Math.round((dW - h0) / 86400000);
+            if (!A.confirmar('⚠️ ATENÇÃO: essa WO é de ' + (qdias === 1 ? 'AMANHÃ' : 'daqui a ' + qdias + ' dias') +
+              ' (' + A.fmtDataDia(w.data) + ') — o trabalho ainda nem começou.\n\nCliente: ' + (w.cliente || w.id) +
+              '\nGuy: ' + A.subNome(w.sub_id) +
+              '\n\nFinalizar assim mesmo?')) return;
+          }
+          if (!A.confirmar('Finalizar o trabalho da WO de "' + (w.cliente || w.id) + '" (' + A.subNome(w.sub_id) + ')? A WO some da tela principal e o job vai pra Done se os valores estiverem completos.')) return;
           btn.disabled = true; btn.textContent = 'Finalizando…';
           finalizarWO(w, function () { aplicar(); });
         });
