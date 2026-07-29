@@ -403,6 +403,48 @@ body {
 .loading { text-align: center; padding: 60px 20px; color: var(--ink-soft); font-weight: 700; }
 .loading::before { content: ""; display: block; width: 30px; height: 30px; margin: 0 auto 16px; border: 3px solid var(--line); border-top-color: var(--orange); border-radius: 50%; animation: gspin .7s linear infinite; }
 
+/* ===== itens do checklist estruturados (28/07) — vale pra TODO guy/WO ===== */
+.chk .txt { display: block; }
+.i-tag {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 900; letter-spacing: .5px;
+  margin: 0 0 6px; text-transform: uppercase; color: #fff;
+}
+.i-pay  { background: #2E7D6B; }
+.i-est  { background: #D4722A; }
+.i-warn { background: #B03A48; }
+.i-key  { background: #7A6220; }
+.i-buy  { background: #4A6FA5; }
+.i-call { background: #2C6FA8; }
+.i-pic  { background: #8E44AD; }
+.i-info { background: #6B7280; }
+.i-ok   { background: #2E7D6B; }
+
+.i-ttl {
+  display: block; font-weight: 800; font-size: 15.5px; line-height: 1.35;
+  margin: 0 0 3px; overflow-wrap: anywhere;
+}
+.i-body {
+  display: block; font-weight: 500; font-size: 13.5px; line-height: 1.55;
+  opacity: .82; overflow-wrap: anywhere;
+}
+.i-warn {
+  display: block; margin-top: 8px; padding: 8px 10px;
+  border-radius: 9px; border-left: 3px solid #B03A48;
+  background: rgba(176, 58, 72, .09);
+  font-weight: 700; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere;
+}
+.i-mny { font-weight: 900; font-size: 1.05em; white-space: nowrap; }
+.i-tel {
+  display: inline-block; margin: 3px 0; padding: 3px 9px;
+  border-radius: 8px; background: rgba(44, 111, 168, .12);
+  color: inherit; font-weight: 800; text-decoration: none; white-space: nowrap;
+}
+@media (prefers-color-scheme: dark) {
+  .i-warn { background: rgba(255, 120, 130, .13); border-left-color: #FF7882; }
+  .i-tel  { background: rgba(120, 175, 255, .16); }
+}
+
 </style>
 </head>
 <body>
@@ -894,6 +936,66 @@ window.IAC_CFG = {
       return '<a href="' + u + '" target="_blank" rel="noopener" style="font-weight:700;text-decoration:underline">' + label + '</a>';
     });
   }
+  // ---------------------------------------------------------------------------
+  // fmtItem: deixa QUALQUER item do checklist legivel sem precisar reescrever o
+  // texto no banco. Extrai: badge do tipo (pelo emoji), titulo, telefone clicavel,
+  // valores em destaque e o aviso (⚠️) num bloco separado.
+  // ---------------------------------------------------------------------------
+  var IT_TAGS = [
+    ['💵', 'PAGAMENTO', 'pay'], ['📋', 'ORÇAMENTO', 'est'], ['⚡', 'URGENTE', 'warn'],
+    ['⚠️', 'ATENÇÃO', 'warn'], ['🔑', 'CHAVE', 'key'], ['🛒', 'COMPRAR', 'buy'],
+    ['📦', 'MATERIAL', 'buy'], ['📞', 'LIGAR', 'call'], ['📸', 'FOTOS', 'pic'],
+    ['📆', 'AGENDA', 'info'], ['ℹ️', 'INFO', 'info'], ['🧰', 'CONFERIR', 'buy'],
+    ['🧾', 'NOTINHA', 'buy'], ['✅', '', 'ok']
+  ];
+  var RE_TEL = /(\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
+  var RE_MONEY = /\$[\d][\d.,]*/g;
+
+  function realce(txt) {
+    // ordem importa: linkifica URL primeiro (esc ja aplicado dentro), depois tel/valor
+    var h = linkify(txt);
+    h = h.replace(RE_MONEY, function (v) { return '<b class="i-mny">' + v + '</b>'; });
+    h = h.replace(RE_TEL, function (t) {
+      var d = t.replace(/\D/g, '');
+      if (d.length < 10) return t;
+      return '<a class="i-tel" href="tel:+1' + d.slice(-10) + '">📞 ' + t + '</a>';
+    });
+    return h;
+  }
+
+  function fmtItem(raw) {
+    var t = String(raw == null ? '' : raw).trim();
+    // 1) badge pelo emoji inicial
+    var tag = null;
+    for (var i = 0; i < IT_TAGS.length; i++) {
+      if (t.indexOf(IT_TAGS[i][0]) === 0) {
+        tag = IT_TAGS[i];
+        t = t.slice(IT_TAGS[i][0].length).trim();
+        break;
+      }
+    }
+    // 2) tira o "N#" redundante (a parada ja mostra o numero)
+    t = t.replace(/^\d+#\s*/, '');
+    // 3) separa o aviso (⚠️ ...) do corpo
+    var avisos = [];
+    t = t.replace(/⚠️+\s*([^⚠]*)$/, function (_m, resto) { avisos.push(resto.trim()); return ''; }).trim();
+    t = t.replace(/[·.\s]+$/, '');
+    // 4) titulo = primeiro pedaco curto antes de — ou :
+    var titulo = '', corpo = t;
+    var mt = t.match(/^([^—:]{3,60})\s*[—:]\s*([\s\S]+)$/);
+    if (mt) { titulo = mt[1].trim(); corpo = mt[2].trim(); }
+    else if (t.length <= 70) { titulo = t; corpo = ''; }
+
+    var h = '';
+    if (tag && tag[1]) h += '<span class="i-tag i-' + tag[2] + '">' + tag[1] + '</span>';
+    if (titulo) h += '<b class="i-ttl">' + realce(titulo) + '</b>';
+    if (corpo) h += '<span class="i-body">' + realce(corpo) + '</span>';
+    avisos.forEach(function (a) {
+      if (a) h += '<span class="i-warn">⚠️ ' + realce(a) + '</span>';
+    });
+    return h || realce(String(raw || ''));
+  }
+
   function getToken() {
     var m = location.search.match(/[?&]t=([^&]+)/);
     if (m) return decodeURIComponent(m[1]);
@@ -1254,7 +1356,7 @@ window.IAC_CFG = {
     var c = it.c, i = it.i;
     return '<button class="chk' + (c.done ? ' done' : '') + '" data-i="' + i + '">' +
       '<span class="num">' + (pin ? '📍' : (i + 1)) + '</span>' +
-      '<span class="txt">' + (label ? esc(label) : linkify(c.item)) +
+      '<span class="txt">' + (label ? esc(label) : fmtItem(c.item)) +
       '<span class="here">' + esc(T.currentStep) + '</span></span>' +
       '<span class="box">' + ic('check', 18) + '</span></button>';
   }
