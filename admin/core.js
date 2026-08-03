@@ -383,6 +383,10 @@
   }
   function subNome(id) { return (cache.subById[id] && cache.subById[id].nome) || id || '—'; }
 
+  // Subs INTERNOS da IAC: nao recebem repasse por job (o Edu e gerente assalariado,
+  // o Italo e o dono). WO deles serve pra roteiro/orcamento/cobranca, nao pra pagar.
+  var SUBS_INTERNOS = { edu: 1, italo: 1 };
+
   // -------------------------------------------------------------- finalizacao WO -> job Done
   // Avalia se o job pode fechar (mover pra 'Done'). Regra: so fecha se o job tiver
   // pelo menos UMA work order 'Concluido' E todos os valores necessarios preenchidos
@@ -396,7 +400,7 @@
     if (!jobId) return Promise.resolve(vazio);
     return Promise.all([
       sb.from('jobs').select('id,cliente,valor_total,status').eq('id', jobId).maybeSingle(),
-      sb.from('work_orders').select('id,valor_repasse,status').eq('job_id', jobId)
+      sb.from('work_orders').select('id,valor_repasse,status,sub_id').eq('job_id', jobId)
     ]).then(function (rs) {
       if (rs[0].error) throw rs[0].error;
       if (rs[1].error) throw rs[1].error;
@@ -406,7 +410,13 @@
       if (!concluidas.length) return { done: false, temWoConcluida: false, pendencias: [], job: job };
       var pendencias = [];
       if (job.valor_total === null || job.valor_total === undefined) pendencias.push('valor total do job');
-      var faltaRepasse = concluidas.some(function (w) { return w.valor_repasse === null || w.valor_repasse === undefined; });
+      // So exige repasse de WO de GUY EXECUTOR. As WOs internas (Edu gerente / Italo)
+      // nao tem repasse por job — antes elas travavam a finalizacao e o botao
+      // "Finalizar trabalho" parecia nao funcionar (bug reportado 02/08).
+      var faltaRepasse = concluidas.some(function (w) {
+        return !SUBS_INTERNOS[String(w.sub_id || '')] &&
+          (w.valor_repasse === null || w.valor_repasse === undefined);
+      });
       if (faltaRepasse) pendencias.push('valor do repasse do sub');
       if (pendencias.length) return { done: false, temWoConcluida: true, pendencias: pendencias, job: job };
       if (String(job.status || '') === 'Done') return { done: false, already: true, temWoConcluida: true, pendencias: [], job: job };
@@ -577,6 +587,7 @@
     cache: cache,
     subNome: subNome,
     avaliarJobDone: avaliarJobDone, jobPendenteValor: jobPendenteValor,
+    SUBS_INTERNOS: SUBS_INTERNOS,
     esc: esc, money: money, num: num, hoje: hoje,
     fmtData: fmtData, fmtDataDia: fmtDataDia, parseISO: parseISO, weekRange: weekRange,
     debounce: debounce, token32: token32, slug: slug,

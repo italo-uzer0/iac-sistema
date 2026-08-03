@@ -189,7 +189,8 @@
   function renderLista(root) {
     return Promise.all([
       A.sb.from('work_orders').select('*').order('data', { ascending: false }),
-      A.sb.from('wo_checklist').select('wo_id,done')
+      A.sb.from('wo_checklist').select('wo_id,done'),
+      A.sb.from('jobs').select('id,status')
     ]).then(function (rs) {
       rs.forEach(function (r) { if (r.error) throw r.error; });
       var wos = rs[0].data || [];
@@ -198,8 +199,31 @@
         var p = prog[c.wo_id] || (prog[c.wo_id] = { done: 0, total: 0 });
         p.total++; if (c.done) p.done++;
       });
-      desenharLista(root, wos, prog);
+      var jobSt = {};
+      (rs[2].data || []).forEach(function (j) { jobSt[j.id] = String(j.status || ''); });
+      desenharLista(root, wos, prog, jobSt);
     });
+  }
+
+  // ------------------------------------------------------------ WO ja CUMPRIDA
+  // Uma WO interna (Edu/Italo) de ORCAMENTO existe pra que a visita aconteca e o
+  // quote saia. Quando o job ja passou dessa fase, ela cumpriu o papel — mas ficava
+  // "A enviar" pra sempre e o cartao aparecia como ATRASADA, poluindo a tela com
+  // coisa que nao ha o que fazer. (Reportado pelo Italo em 02/08.)
+  //
+  // So conta como cumprida se o job entrou numa fase que so se alcanca DEPOIS do
+  // orcamento sair. WO de INICIO/FECHAMENTO de projeto (job em Schedule/Prep/In
+  // progress) continua ativa de proposito — aquilo ainda tem que acontecer.
+  var JOB_POS_ORCAMENTO = {
+    'Estimate Enviado': 1, 'Perdidos': 1, 'Cancelado': 1, 'Done': 1
+  };
+  function woCumprida(w, jobSt) {
+    if (String(w.status || '') === 'Concluido') return false;
+    if (!A.SUBS_INTERNOS[String(w.sub_id || '')]) return false;   // guy executor: nunca
+    if (w.valor_repasse) return false;                            // tem dinheiro em jogo: nunca
+    var d = A.parseISO(w.data), h0 = new Date(); h0.setHours(0, 0, 0, 0);
+    if (!d || d >= h0) return false;                              // so o que ja passou
+    return !!JOB_POS_ORCAMENTO[jobSt[w.job_id] || ''];
   }
 
   /* ---- pecas visuais ---- */
@@ -264,11 +288,16 @@
   }
 
   /* ---- card de UMA wo ---- */
-  function cardWo(w, p, hoje0, mods) {
+  // cumprida=true: orcamento ja enviado — chip verde no lugar do "ATRASADA", que
+  // so assustava sem ter o que fazer.
+  function cardWo(w, p, hoje0, mods, cumprida) {
     p = p || { done: 0, total: 0 };
     var pct = p.total ? Math.round(100 * p.done / p.total) : 0;
+    var chip = cumprida
+      ? '<span class="wov-chip wov-chip-feito">✅ ORÇAMENTO ENVIADO</span>'
+      : chipDia(w, hoje0) + badgeVivo(w, hoje0);
     return '<a class="card wov-card' + (mods || '') + '" href="#/wo/' + A.esc(w.id) + '">' +
-      '<div class="wov-top">' + chipDia(w, hoje0) + badgeVivo(w, hoje0) +
+      '<div class="wov-top">' + chip + (cumprida ? '' : '') +
       '<span class="grow"></span><span class="badge warm">' + A.esc(w.status || 'A enviar') + '</span></div>' +
       '<div class="wov-cli">' + A.esc(w.cliente || '—') + '</div>' +
       guyChip(w.sub_id) +
@@ -423,7 +452,8 @@
     }).join('');
   }
 
-  function desenharLista(root, wos, prog) {
+  function desenharLista(root, wos, prog, jobSt) {
+    jobSt = jobSt || {};
     root.innerHTML =
       '<div class="h-page">' + A.icon('workorders', 22) + ' Work Orders <span class="grow"></span>' +
       '<a class="btn sm" href="#/wo/nova">+ Nova</a></div>' +
@@ -455,17 +485,34 @@
         return true;
       });
       var box = document.getElementById('wo-grupos');
-      var ativas = vis.filter(function (w) { return String(w.status || '') !== 'Concluido'; });
+      // WOs de orcamento que ja cumpriram o papel saem do "a fazer" e vao pro fim,
+      // num bloco proprio com botao de arquivar em lote.
+      var cumpridas = vis.filter(function (w) { return woCumprida(w, jobSt); });
+      var cumpSet = {}; cumpridas.forEach(function (w) { cumpSet[w.id] = 1; });
+      var ativas = vis.filter(function (w) { return String(w.status || '') !== 'Concluido' && !cumpSet[w.id]; });
       var concl = vis.filter(function (w) { return String(w.status || '') === 'Concluido'; });
       var edu = ativas.filter(function (w) { return String(w.sub_id || '') === 'edu'; });
       var guys = ativas.filter(function (w) { return String(w.sub_id || '') !== 'edu'; });
 
       var html = '';
+      if (cumpridas.length) {
+        html += '<div class="wov-cumpre">' +
+          '<div class="wov-cumpre-t">✅ ' + cumpridas.length + ' orçamento' + (cumpridas.length > 1 ? 's já enviados' : ' já enviado') +
+          ' — não tem mais nada a fazer aqui</div>' +
+          '<div class="wov-cumpre-x">A visita aconteceu e o quote saiu. Ficam abaixo, fora da lista de trabalho, até o cliente responder.</div>' +
+          '<button class="btn sm" id="wov-arquivar">🧹 Arquivar ' + (cumpridas.length > 1 ? 'os ' + cumpridas.length : '') + '</button>' +
+          '</div>';
+      }
       if (fFiltro.vista === 'guy') {
         html += secaoPorGuy(ativas, prog, hoje0);
       } else {
         html += secaoHtml('👔 EDU — GERENTE', 'wov-sec-edu', edu, prog, hoje0, estaR[1]);
         html += secaoHtml('👷 GUYS', 'wov-sec-guys', guys, prog, hoje0, estaR[1]);
+      }
+      if (cumpridas.length) {
+        cumpridas.sort(function (a, b) { return ordenarWos(b, a); });
+        html += '<div class="wov-sec-t wov-sec-cumpre">✅ ORÇAMENTOS JÁ ENVIADOS <span class="count">' + cumpridas.length + '</span></div>';
+        html += cumpridas.map(function (w) { return cardWo(w, prog[w.id], hoje0, ' wov-done', true); }).join('');
       }
       if (concl.length) {
         concl.sort(function (a, b) { return ordenarWos(b, a); });
@@ -475,6 +522,23 @@
         if (conclAberto) html += concl.map(function (w) { return cardWo(w, prog[w.id], hoje0, ' wov-done'); }).join('');
       }
       box.innerHTML = html || A.empty('Nenhuma work order aqui', 'Ajusta os filtros ou cria uma nova.', 'workorders');
+
+      // arquivar em lote os orcamentos ja cumpridos (1 clique limpa a tela)
+      var arqBtn = document.getElementById('wov-arquivar');
+      if (arqBtn) {
+        arqBtn.addEventListener('click', function () {
+          if (!A.confirmar('Arquivar ' + cumpridas.length + ' work order(s) de orçamento que já foram enviados?\n\n' +
+            cumpridas.map(function (w) { return '· ' + (w.cliente || w.id); }).join('\n') +
+            '\n\nElas viram "Concluído" e saem da lista. Os jobs continuam no kanban normalmente.')) return;
+          arqBtn.disabled = true; arqBtn.textContent = 'Arquivando…';
+          Promise.all(cumpridas.map(function (w) {
+            return salvarWo(w.id, { status: 'Concluido' }).then(function () { w.status = 'Concluido'; });
+          })).then(function () {
+            A.toast('✔ ' + cumpridas.length + ' orçamento(s) arquivado(s)', 'ok');
+            aplicar();
+          }).catch(A.toastErr);
+        });
+      }
 
       box.querySelectorAll('.grp-h').forEach(function (h) {
         h.addEventListener('click', function () {
@@ -549,8 +613,16 @@
     });
   }
 
+  // .select('id') e proposital: um update sem select NAO devolve erro quando afeta
+  // ZERO linhas (sessao expirada -> RLS barra em silencio). Sem isso o botao
+  // "Finalizar" dava a impressao de ter funcionado e nada era gravado.
   function salvarWo(id, patch) {
-    return A.sb.from('work_orders').update(patch).eq('id', id).then(function (r) { if (r.error) throw r.error; });
+    return A.sb.from('work_orders').update(patch).eq('id', id).select('id').then(function (r) {
+      if (r.error) throw r.error;
+      if (!r.data || !r.data.length) {
+        throw new Error('Nada foi salvo — sua sessão pode ter expirado. Recarrega a página, entra de novo e tenta outra vez.');
+      }
+    });
   }
 
   // ---- review pos-Done (regra 23): grava nota com o SMS de review pronto ----
