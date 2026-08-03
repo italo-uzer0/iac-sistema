@@ -20,6 +20,9 @@
   // jobs "fechados" = dinheiro real; resto e hold/perdido
   var FECHADOS = ['Schedule', 'Prep', 'In progress', 'Blocker', 'review', 'Done'];
   var HOLD = ['Lead', 'Visita agendada', 'Visita feita', 'Estimate Enviado'];
+  // jobs que o guy JA colocou a mao: divida/recebivel de verdade, cobravel hoje.
+  // Job so agendado (Schedule/Prep) ainda nao virou divida nem receita — e futuro.
+  var EXECUTADOS = ['In progress', 'Blocker', 'review', 'Done'];
   var CARTAO_DIVIDA_INICIAL = 18000; // referencia pra barra de progresso da divida
 
   function catDe(row) {
@@ -122,6 +125,12 @@
       if (!j) return true; // job arquivado/desconhecido: dinheiro historico = real
       return FECHADOS.indexOf(String(j.status || '')) >= 0;
     }
+    function jobExecutado(id) {
+      if (!id) return true; // lancamento manual sem job: dinheiro real, ja aconteceu
+      var j = jobById[id];
+      if (!j) return true; // job arquivado/desconhecido: historico = ja aconteceu
+      return EXECUTADOS.indexOf(String(j.status || '')) >= 0;
+    }
     // linha do caixa que pertence a visao Real
     function ehRealRow(r) {
       if (catDe(r) === 'conta_fixa') return false;
@@ -196,23 +205,38 @@
           return true;
         });
 
-        var receb = 0, aReceber = 0, repPago = 0, repDevido = 0, desp = 0;
+        // Divida != custo futuro. Repasse de job JA EXECUTADO e divida (o guy trabalhou);
+        // repasse de job so agendado e compromisso, nao se deve nada ainda. Mesma logica
+        // do outro lado: entrada pendente de job executado ja da pra cobrar, de job
+        // futuro e projecao. Somar os dois juntos inflava a divida em ~6,5x.
+        var receb = 0, aReceberAgora = 0, projetado = 0;
+        var repPago = 0, divida = 0, comprometido = 0, desp = 0, cancelado = 0;
         vis.forEach(function (r) {
           var v = Number(r.valor || 0);
+          if (r.status === 'cancelado') { cancelado += v; return; } // write-off: nunca entra em total nenhum
+          var executado = jobExecutado(r.job_id);
           if (r.tipo === 'entrada') {
-            if (r.status === 'pendente') aReceber += v; else receb += v;
+            if (r.status === 'pago') receb += v; // recebido = SO 'pago', nada mais
+            else if (executado) aReceberAgora += v;
+            else projetado += v;
           } else if (r.tipo === 'repasse') {
-            if (r.status === 'pendente' || r.status === 'parcial') repDevido += v; else repPago += v;
+            if (r.status === 'pago') repPago += v;
+            else if (executado) divida += v;
+            else comprometido += v;
           } else {
             if (r.status !== 'pendente') desp += v;
           }
         });
         var saldo = receb - repPago - desp;
         document.getElementById('cx-stats').innerHTML =
-          stat('Recebido', A.money(receb), 'green', 'so jobs fechados', receb) +
-          stat('A receber', A.money(aReceber), 'orange', 'pendente de fechados', aReceber) +
-          stat('A pagar subs', A.money(repDevido), 'red', 'repasses pagos: ' + A.money(repPago), repDevido) +
-          stat('Saldo real', A.money(saldo), saldo >= 0 ? 'green' : 'red', 'despesas pagas: ' + A.money(desp), saldo);
+          stat('Recebido', A.money(receb), 'green', cancelado ? 'sem ' + A.money(cancelado) + ' cancelado' : 'so o que caiu', receb) +
+          stat('A receber agora', A.money(aReceberAgora), 'orange', 'job ja feito, da pra cobrar', aReceberAgora) +
+          stat('Divida com guys', A.money(divida), 'red', 'repasses pagos: ' + A.money(repPago), divida) +
+          stat('Saldo real', A.money(saldo), saldo >= 0 ? 'green' : 'red', 'despesas pagas: ' + A.money(desp), saldo) +
+          // ocupa a linha inteira do grid pra nao desalinhar os stats de baixo
+          '<div class="ds-section-h" style="grid-column:1/-1;font-size:12.5px;padding:7px 11px">⏭ Ainda nao aconteceu — nao e divida</div>' +
+          stat('Projetado', A.money(projetado), 'orange', 'entra quando o job rodar', projetado) +
+          stat('Comprometido', A.money(comprometido), 'orange', 'repasse de job agendado', comprometido);
         cuAll(document.getElementById('cx-stats'));
         atualizarBreakEven();
 
@@ -220,6 +244,11 @@
         if (!vis.length) {
           box.innerHTML = A.empty('Nenhum lancamento', 'Ajusta os filtros ou adiciona um novo.', 'caixa');
           return;
+        }
+        // deixa claro na linha se aquele pendente e cobravel hoje ou so previsao
+        function rotuloPendente(r) {
+          if (jobExecutado(r.job_id)) return 'PENDENTE';
+          return r.tipo === 'entrada' ? 'PROJETADO' : (r.tipo === 'repasse' ? 'COMPROMETIDO' : 'PENDENTE');
         }
         box.innerHTML = vis.map(function (r, i) {
           var cat = catDe(r);
@@ -231,7 +260,8 @@
             '<div class="t2">' + A.esc(A.fmtData(r.data)) + ' · ' + A.esc(r.tipo) +
             (cat ? ' · <span class="badge" style="font-size:10px;padding:1px 7px">' + A.esc(cat) + '</span>' : '') +
             (r.pago_para ? ' · pra ' + A.esc(r.pago_para) : '') +
-            (r.status === 'pendente' ? ' · <b style="color:var(--red)">PENDENTE</b>' : '') +
+            (r.status === 'pendente' ? ' · <b style="color:var(--red)">' + rotuloPendente(r) + '</b>' : '') +
+            (r.status === 'cancelado' ? ' · <b style="color:var(--muted)">CANCELADO (nao conta)</b>' : '') +
             '</div></div>' +
             '<b style="color:' + cor + ';white-space:nowrap">' + sinal + A.money(r.valor).replace('-', '') + '</b>' +
             '<button class="icon-btn" data-cx-ed="' + i + '" title="editar">✎</button>' +
@@ -266,7 +296,8 @@
         if (!(fixoMes > 0)) { card.style.display = 'none'; return; }
         var mes = mesAtual(), recMes = 0;
         rows.forEach(function (r) {
-          if (r.tipo === 'entrada' && r.status !== 'pendente' &&
+          // so 'pago' conta como recebido — 'cancelado' e write-off, nao pagou boleto nenhum
+          if (r.tipo === 'entrada' && r.status === 'pago' &&
             String(r.data || '').slice(0, 7) === mes && ehRealRow(r)) recMes += Number(r.valor || 0);
         });
         var pct = Math.min(100, Math.round(recMes / fixoMes * 100));
@@ -302,7 +333,7 @@
           '<div style="width:130px"><label>Valor $</label><input id="c-valor" type="number" step="any" value="' + (edit ? A.esc(edit.valor) : '') + '" /></div>' +
           '<div class="grow"><label>Data</label><input id="c-data" type="date" value="' + A.esc((edit && edit.data) || A.hoje()) + '" /></div>' +
           '<div class="grow"><label>Status</label><select id="c-status">' +
-          ['pago', 'pendente', 'parcial'].map(function (s) { return '<option' + (edit && edit.status === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></div>' +
+          ['pago', 'pendente', 'parcial', 'cancelado'].map(function (s) { return '<option' + (edit && edit.status === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></div>' +
           '</div>' +
           '<div><label>Descricao</label><input id="c-desc" value="' + A.esc(edit ? descLimpa(edit) : '') + '" placeholder="ex: gasolina van / deposito cliente…" /></div>' +
           '<div class="row">' +

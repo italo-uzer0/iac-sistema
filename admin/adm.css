@@ -979,3 +979,60 @@ main.page { padding: 14px 14px calc(var(--nav-h) + 24px + env(safe-area-inset-bo
   .wov-cumpre-t{color:#7FCBB4}
   .wov-cumpre-x{color:#93a9a2}
 }
+
+
+/* =====================================================================
+   SEPARACAO DIVIDA REAL x CUSTO FUTURO (03/08/2026)
+   O sistema somava num numero so o repasse de trabalho JA FEITO (divida)
+   com o de job que ainda nem comecou (compromisso). Isso mostrou $25.065
+   quando a divida era $3.825 e travou uma decisao do Italo. Estilos abaixo
+   dao o contraste visual entre os dois blocos em cada tela.
+   ===================================================================== */
+
+/* ---- de dia.js ---- */
+/* --- Meu Dia: separacao divida real x compromisso futuro (secoes 3 e 4) --- */
+.dia-blk-ttl {
+  font-size: 13px; font-weight: 800; color: var(--warm);
+  margin: 2px 0 7px; letter-spacing: -.2px;
+}
+.dia-tot.gray { background: #f2ede7; color: var(--muted); }
+.dia-fin-vl.gray { color: var(--muted); }
+.dia-fin.futuro { background: #fbf8f4; border-style: dashed; box-shadow: none; }
+
+/* ---- de caixa.js ---- */
+/* ---------- caixa: bloco "futuro" separado do dinheiro real ---------- */
+.stat-grid .cx-futuro-h {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.stat-grid .cx-futuro-h ~ .stat {
+  opacity: .8;
+  border-left: 3px solid var(--orange);
+}
+
+/* ---- de dash.js ---- */
+/* dashboard: agora sao 6 cards (a receber agora/futuro, recebido, devo/custo futuro, ativos).
+   3 colunas no desktop deixa 2 linhas certinhas; no celular continua 2 colunas. */
+@media (min-width: 760px) {
+  .stat-grid.g3 { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* numero de job NAO executado fica cinza, pra nao competir visualmente com o dinheiro real */
+.stat .val.futuro { color: var(--muted); }
+
+/* ---- de wo.js ---- */
+/* Por guy: dívida (trabalho já feito) NUNCA no mesmo número do custo futuro (03/08) */
+.wov-apagar { font-size:11.5px; font-weight:800; color:#B03A48;
+  background:#FBECEE; border:1px solid #F0CDD3; border-radius:8px; padding:3px 8px; white-space:nowrap; }
+.wov-compr { font-size:11.5px; font-weight:800; color:#6B5B45;
+  background:var(--warm-light); border:1px solid var(--line); border-radius:8px; padding:3px 8px; white-space:nowrap; }
+.wov-gl-div { padding:7px 13px; background:#FBECEE; color:#B03A48;
+  border-top:1px solid #F0CDD3; border-bottom:1px solid #F0CDD3;
+  font-weight:800; font-size:11px; letter-spacing:.03em; }

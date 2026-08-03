@@ -27,6 +27,19 @@
   // sub-itens do veiculo (ja dentro de veiculo_total) — nao duplicar
   var CAT_SKIP = { veiculo_combustivel: 1, veiculo_reparos: 1, veiculo_pedagio_estacionamento: 1 };
 
+  // Status de job em que o TRABALHO JA ACONTECEU. O split existe porque dinheiro de
+  // job executado e dinheiro DE VERDADE (da pra cobrar / ja se deve ao sub), e dinheiro
+  // de job futuro e so previsao. Somar os dois no mesmo numero inflava a divida em 6,5x
+  // ($25.065 no lugar de $3.825) e o Italo travou decisao achando que devia 25 mil.
+  var JOB_EXECUTADO = { 'In progress': 1, 'Blocker': 1, 'review': 1, 'Done': 1 };
+  function executado(st) { return !!JOB_EXECUTADO[String(st || '')]; }
+
+  // pendente de verdade no caixa. 'cancelado' e write-off: NUNCA entra em total nenhum.
+  function caixaPendente(c) {
+    var s = String(c.status || '');
+    return s === 'pendente' || s === 'parcial';
+  }
+
   A.pages.dash = {
     render: function (root) {
       sb = A.sb;
@@ -34,7 +47,7 @@
       return Promise.all([
         sb.from('jobs').select('id,cliente,status,valor_total,pago,pagamento'),
         sb.from('work_orders').select('id,cliente,sub_id,data,hora,servico,status,valor_repasse,pago_ao_sub'),
-        sb.from('caixa').select('tipo,valor,status,data,categoria'),
+        sb.from('caixa').select('tipo,valor,status,data,categoria,job_id'),
         sb.from('qbo_snapshot').select('*').order('id', { ascending: false }).limit(1),
         sb.from('contas_fixas').select('id,nome,valor,frequencia').eq('ativo', true),
         sb.from('contas_pagamentos').select('conta_id,valor,mes').eq('mes', mes)
@@ -101,9 +114,9 @@
     var mes = A.hoje().slice(0, 7);
     var mesLabel = (MESES_PT[Number(mes.slice(5))] || mes) + '/' + mes.slice(0, 4);
 
-    var recebido = 0, repasses = 0, despesas = 0, fixasViaCaixa = 0;
+    var recebido = 0, repasses = 0, despesas = 0, fixasViaCaixa = 0, materiais = 0;
     caixa.forEach(function (c) {
-      if (c.status !== 'pago') return;
+      if (c.status !== 'pago') return; // so dinheiro que entrou/saiu de verdade (nunca pendente nem cancelado)
       if (String(c.data || '').slice(0, 7) !== mes) return;
       var v = Number(c.valor || 0);
       if (c.tipo === 'entrada') recebido += v;
@@ -111,6 +124,9 @@
       else if (c.tipo === 'despesa') {
         despesas += v;
         if (/conta_fixa/i.test(c.categoria || '')) fixasViaCaixa += v;
+        // /materia/ e nao /material/: a categoria "materiais" (rollup COGS do QBO, $2k-$9k/mes)
+        // nao casa com "material" e ficava de fora — o que inflava a margem em milhares.
+        if (/materia/i.test(c.categoria || '')) materiais += v; // material, materiais, material_job
       }
     });
 
@@ -126,10 +142,13 @@
     var lucro = recebido - repasses - despesas;
     var projecao = lucro - fixasRestantes;
 
-    // break-even: cobrir o total fixo mensal com o que entra
+    // Break-even e MARGEM x custo fixo, nao faturamento x custo fixo. O faturamento bruto
+    // ja sai com o repasse do sub e o material dentro dele — comparar bruto com o fixo
+    // dava o mes como "empatado" 3 a 6x cedo demais (jul: $97.422 bruto vs $30.923 de margem real).
+    var margem = recebido - repasses - materiais;
     var meta = fixoMensal;
-    var pct = meta > 0 ? Math.min(100, Math.round(recebido / meta * 100)) : 100;
-    var bateu = recebido >= meta;
+    var pct = meta > 0 ? Math.max(0, Math.min(100, Math.round(margem / meta * 100))) : 100;
+    var bateu = margem >= meta;
 
     function sinal(v) { return v >= 0 ? 'lc-pos' : 'lc-neg'; }
 
@@ -146,11 +165,12 @@
       '</div>' +
       '<div class="lc-proj">Projecao do mes (lucro − fixas restantes): ' +
       '<b class="' + sinal(projecao) + '">' + A.esc(A.money(projecao)) + '</b></div>' +
-      '<div class="lc-be-txt">Pra empatar o mes: faturar ~' + A.esc(A.money(meta)) +
-      ' <span class="muted">(total das contas fixas do mes)</span></div>' +
+      '<div class="lc-be-txt">Pra empatar o mes: ~' + A.esc(A.money(meta)) + ' de MARGEM' +
+      ' <span class="muted">(margem = recebido − repasses − material; meta = contas fixas do mes)</span></div>' +
       '<div class="ds-bar' + (bateu ? ' green' : '') + '"><i data-barw="' + pct + '"></i></div>' +
-      '<div class="lc-be-sub">Recebido ' + A.esc(A.money(recebido)) + ' de ' + A.esc(A.money(meta)) +
-      ' (' + pct + '%)' + (bateu ? ' — mes empatado, daqui pra frente e lucro ✔' : '') + '</div>' +
+      '<div class="lc-be-sub">Margem ate agora ' + A.esc(A.money(margem)) + ' de ' + A.esc(A.money(meta)) +
+      ' (' + pct + '%)' + (bateu ? ' — mes empatado, daqui pra frente e lucro ✔' : '') +
+      ' <span class="muted">· recebido bruto ' + A.esc(A.money(recebido)) + '</span></div>' +
       '</div>';
   }
   function lcItem(lbl, val, cls) {
@@ -160,12 +180,16 @@
 
   function desenhar(root, jobs, wos, caixa, qbo, contas, pagosFixas) {
     // ---- cards resumo ----
-    var aReceber = 0, ativos = 0;
+    // A receber sai em DOIS numeros: o que da pra cobrar hoje (trabalho ja feito) e o que
+    // ainda nem aconteceu. Junto dava "A receber $104.823" com 72% de job nao executado.
+    var aRecCobravel = 0, aRecFuturo = 0, ativos = 0;
     jobs.forEach(function (j) {
       var conf = A.JOB_ATIVOS.indexOf(j.status) >= 0 || j.status === 'Done';
       if (conf && j.valor_total) {
         var falta = Number(j.valor_total) - Number(j.pago || 0);
-        if (falta > 0) aReceber += falta;
+        if (falta > 0) {
+          if (executado(j.status)) aRecCobravel += falta; else aRecFuturo += falta;
+        }
       }
       if (A.JOB_ATIVOS.indexOf(j.status) >= 0) ativos++;
     });
@@ -173,21 +197,34 @@
     caixa.forEach(function (c) {
       if (c.tipo === 'entrada' && c.status === 'pago') recebido += Number(c.valor || 0);
     });
-    var repPend = 0, repPendN = 0;
-    wos.forEach(function (w) {
-      if (w.valor_repasse) {
-        var falta = Number(w.valor_repasse) - Number(w.pago_ao_sub || 0);
-        if (falta > 0) { repPend += falta; repPendN++; }
-      }
+
+    // Repasse sai do CAIXA (fonte de verdade do dinheiro), nao de work_orders — lendo WO
+    // este card dava $25.584 e a tela do caixa dava outro numero pro MESMO conceito.
+    var jobSt = {};
+    jobs.forEach(function (j) { jobSt[j.id] = j.status; });
+    var repDevido = 0, repDevidoN = 0, repFuturo = 0, repFuturoN = 0;
+    caixa.forEach(function (c) {
+      if (c.tipo !== 'repasse' || !caixaPendente(c)) return;
+      var v = Number(c.valor || 0);
+      if (v <= 0) return;
+      // repasse sem job casado (ou com job_id de job arquivado, que nao vem no select) nao da
+      // pra classificar — entra como devido: esconder divida e pior que superestimar.
+      var st = c.job_id ? jobSt[c.job_id] : null;
+      var jaFeito = st ? executado(st) : true;
+      if (jaFeito) { repDevido += v; repDevidoN++; } else { repFuturo += v; repFuturoN++; }
     });
 
     var html =
       '<div class="h-page">' + A.icon('dashboard', 22) + ' Dashboard</div>' +
       heroLucro(caixa, contas || [], pagosFixas || []) +
-      '<div class="stat-grid">' +
-      stat('A receber (confirmado)', A.money(aReceber), 'orange', 'jobs confirmados: total − pago', '#/caixa', aReceber, '$') +
-      stat('Recebido (caixa)', A.money(recebido), 'green', 'entradas pagas registradas', '#/caixa', recebido, '$') +
-      stat('Repasses pendentes', A.money(repPend), 'red', repPendN + ' work order' + (repPendN === 1 ? '' : 's'), '#/wo', repPend, '$') +
+      '<div class="stat-grid g3">' +
+      // link vai pra #/jobs (nao #/caixa) porque estes dois numeros saem de jobs — mandar
+      // pro caixa mostrava outro valor pro mesmo card, que e a divergencia que a auditoria pegou
+      stat('A receber agora', A.money(aRecCobravel), 'orange', 'job ja executado — pode cobrar hoje', '#/jobs', aRecCobravel, '$') +
+      stat('A receber futuro', A.money(aRecFuturo), 'futuro', 'job agendado — ainda nao aconteceu', '#/jobs', aRecFuturo, '$') +
+      stat('Recebido (caixa)', A.money(recebido), 'green', 'so entradas pagas', '#/caixa', recebido, '$') +
+      stat('Devo aos subs', A.money(repDevido), 'red', repDevidoN + ' repasse' + (repDevidoN === 1 ? '' : 's') + ' de job ja feito', '#/caixa', repDevido, '$') +
+      stat('Custo futuro (subs)', A.money(repFuturo), 'futuro', repFuturoN + ' repasse' + (repFuturoN === 1 ? '' : 's') + ' de job futuro — nao e divida', '#/caixa', repFuturo, '$') +
       stat('Jobs ativos', String(ativos), '', A.JOB_ATIVOS.join(' · '), '#/jobs', ativos, '') +
       '</div>';
 

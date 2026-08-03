@@ -37,6 +37,31 @@
   }
   function ehEstimate(job) { return eqStatus(job.status, ST.ESTIMATE); }
 
+  /* ====================== DIVIDA REAL x COMPROMISSO FUTURO ================= */
+  // PORQUE: dinheiro de job que AINDA NAO ACONTECEU nao e divida nem receita —
+  // e compromisso. Somar os dois no mesmo numero inflava o "a pagar" em 6,5x
+  // (25k na tela pra 3,8k de divida de verdade) e o Italo tomou decisao errada
+  // achando que devia. Agora: numero em destaque = so trabalho JA FEITO.
+  // Regra POSITIVA: so Done / In progress e trabalho EXECUTADO. Qualquer outro
+  // status (Schedule, Prep, Estimate, Lead, e tambem Perdidos/Cancelado/Blocker)
+  // nao pode entrar no numero vermelho — lista negra deixava status novo virar divida.
+  var ST_FEITO = ['done', 'in progress'];
+  var JOBIX = {}; // id do job -> job (montado a cada desenho)
+  function jobFeito(job) {
+    return !!job && ST_FEITO.indexOf(String(job.status || '').toLowerCase().trim()) >= 0;
+  }
+  // lancamento de caixa que NAO e de trabalho feito (sem job = trata como real)
+  function lancFuturo(c) {
+    var job = c && c.job_id ? JOBIX[c.job_id] : null;
+    if (!job) return false;
+    return !jobFeito(job);
+  }
+  function somaValor(lista) {
+    return lista.reduce(function (s, c) { return s + Number(c.valor || 0); }, 0);
+  }
+  // caixa que conta como dinheiro: nunca 'cancelado' (write-off), nunca fora de pendente/parcial
+  function emAberto(c) { return c.status === 'pendente' || c.status === 'parcial'; }
+
   /* ================================================ helpers de link ======== */
   function telDigitos(tel) {
     var dig = String(tel || '').replace(/\D/g, '');
@@ -273,17 +298,27 @@
       return ehHojeOuFuturo(w.data);
     });
 
-    /* --- 3) A PAGAR (repasses) --- */
-    var aPagar = caixa.filter(function (c) {
-      return c.tipo === 'repasse' && (c.status === 'pendente' || c.status === 'parcial');
-    }).sort(function (a, b) { return Number(b.valor || 0) - Number(a.valor || 0); });
-    var totalPagar = aPagar.reduce(function (s, c) { return s + Number(c.valor || 0); }, 0);
+    // indice de jobs pra saber se o lancamento e de trabalho feito ou de job futuro
+    JOBIX = {};
+    jobs.forEach(function (j) { JOBIX[j.id] = j; });
 
-    /* --- 4) A RECEBER --- */
-    var aReceber = caixa.filter(function (c) {
-      return c.tipo === 'entrada' && (c.status === 'pendente' || c.status === 'parcial');
+    /* --- 3) A PAGAR (repasses) — divida real x comprometido --- */
+    var repAberto = caixa.filter(function (c) {
+      return c.tipo === 'repasse' && emAberto(c);
     }).sort(function (a, b) { return Number(b.valor || 0) - Number(a.valor || 0); });
-    var totalReceber = aReceber.reduce(function (s, c) { return s + Number(c.valor || 0); }, 0);
+    var aPagar = repAberto.filter(function (c) { return !lancFuturo(c); });  // trabalho JA FEITO = devo
+    var aPagarFut = repAberto.filter(lancFuturo);                            // job que ainda vai rolar
+    var totalPagar = somaValor(aPagar);
+    var totalPagarFut = somaValor(aPagarFut);
+
+    /* --- 4) A RECEBER — cobravel hoje x projetado --- */
+    var entAberto = caixa.filter(function (c) {
+      return c.tipo === 'entrada' && emAberto(c);
+    }).sort(function (a, b) { return Number(b.valor || 0) - Number(a.valor || 0); });
+    var aReceber = entAberto.filter(function (c) { return !lancFuturo(c); });  // pode cobrar agora
+    var aReceberFut = entAberto.filter(lancFuturo);                            // ainda nao aconteceu
+    var totalReceber = somaValor(aReceber);
+    var totalReceberFut = somaValor(aReceberFut);
 
     /* --- 5) FOLLOW-UP (estimates) --- */
     var estimates = jobs.filter(ehEstimate).sort(function (a, b) {
@@ -326,7 +361,14 @@
       cuNum(chkPendentes) + ' na lista de hoje' +
       ' · ' + cuNum(orcamentos.length) + ' visita' + (orcamentos.length === 1 ? '' : 's') +
       ' · ' + cuNum(naRua.length) + ' sub' + (naRua.length === 1 ? '' : 's') + ' na rua' +
-      ' · ' + cuMoney(totalPagar) + ' a pagar</div>' +
+      ' · ' + cuMoney(totalPagar) + ' de divida com os guys</div>' +
+      // o comprometido fica FORA do numero de divida — e job que ainda vai acontecer
+      ((totalPagarFut || totalReceber)
+        ? '<div class="dia-sum" style="margin-top:4px;opacity:.85;font-weight:600">' +
+          [totalPagarFut ? '📌 + ' + A.money(totalPagarFut) + ' comprometido (job ainda nao feito)' : null,
+           totalReceber ? '💵 ' + A.money(totalReceber) + ' cobravel hoje' : null]
+            .filter(Boolean).map(A.esc).join(' · ') + '</div>'
+        : '') +
       (fuVencidos.length
         ? '<div class="dia-sum" style="margin-top:4px;font-weight:700">🔥 ' + cuNum(fuVencidos.length) +
           ' follow-up' + (fuVencidos.length === 1 ? '' : 's') + ' vencido' + (fuVencidos.length === 1 ? '' : 's') +
@@ -420,28 +462,56 @@
     else html += naRua.map(cardRua).join('');
     html += '</div>';
 
-    // === SECAO 3: A PAGAR ===
-    html += secaoHead('pagar', '💰 A pagar (repasses)', aPagar.length, 'total: ' + A.money(totalPagar));
+    // === SECAO 3: A PAGAR (dois blocos separados — nunca somar os dois) ===
+    html += secaoHead('pagar', '💰 A pagar (repasses)', aPagar.length,
+      'divida: ' + A.money(totalPagar) + (totalPagarFut ? ' · comprometido: ' + A.money(totalPagarFut) : ''));
     html += '<div class="dia-sec" data-sec="pagar"' + (aberto.pagar ? '' : ' style="display:none"') + '>';
-    if (!aPagar.length) {
+    if (!aPagar.length && !aPagarFut.length) {
       html += A.empty('Nada a pagar', 'Repasses pendentes/parciais aparecem aqui.', 'money');
     } else {
-      html += '<div class="dia-tot red" id="dia-tot-pagar">Total a pagar: ' + A.money(totalPagar) + '</div>';
-      html += '<div class="dia-note" style="color:var(--muted);font-weight:500">Ja pagou alguem que ainda aparece? Marca ✔ Paguei ou 🗑 remove.</div>';
-      html += aPagar.map(linhaPagar).join('');
-      html += '<button class="btn ' + (conferido ? 'green' : 'sec') + ' sm block dia-conferi" style="margin-top:8px">' +
-        (conferido ? '✓ Conferido' : 'Conferi tudo, esta certo') + '</button>';
+      // BLOCO 1 — divida de verdade (trabalho ja executado). E SO isso que fica vermelho.
+      html += '<div class="dia-blk-ttl" style="font-size:13px;font-weight:800;color:var(--warm);margin:0 0 6px">🔴 Divida com os guys (trabalho feito)</div>';
+      if (!aPagar.length) {
+        html += '<div class="dia-note" style="color:var(--green)">Nada devendo — todo trabalho feito esta pago ✓</div>';
+      } else {
+        html += '<div class="dia-tot red" id="dia-tot-pagar">Devo agora: ' + A.money(totalPagar) + '</div>';
+        html += '<div class="dia-note" style="color:var(--muted);font-weight:500">Ja pagou alguem que ainda aparece? Marca ✔ Paguei ou 🗑 remove.</div>';
+        html += aPagar.map(function (c) { return linhaPagar(c, false); }).join('');
+        html += '<button class="btn ' + (conferido ? 'green' : 'sec') + ' sm block dia-conferi" style="margin-top:8px">' +
+          (conferido ? '✓ Conferido' : 'Conferi tudo, esta certo') + '</button>';
+      }
+      // BLOCO 2 — custo de job que ainda vai acontecer. NAO e divida, nao entra no vermelho.
+      if (aPagarFut.length) {
+        html += '<div class="dia-blk-ttl" style="font-size:13px;font-weight:800;color:var(--warm);margin:14px 0 6px">📌 Comprometido (job ainda nao feito)</div>';
+        html += '<div class="dia-tot gray" id="dia-tot-pagar-fut" style="background:#f1ece6;color:var(--muted)">Vai custar: ' + A.money(totalPagarFut) + '</div>';
+        html += '<div class="dia-note" style="color:var(--muted);font-weight:500">Isso NAO e divida — o trabalho ainda nao foi feito. So vira divida quando o job rodar.</div>';
+        html += aPagarFut.map(function (c) { return linhaPagar(c, true); }).join('');
+      }
     }
     html += '</div>';
 
-    // === SECAO 4: A RECEBER ===
-    html += secaoHead('receber', '💵 A receber', aReceber.length, 'total: ' + A.money(totalReceber));
+    // === SECAO 4: A RECEBER (cobravel hoje x projetado) ===
+    html += secaoHead('receber', '💵 A receber', aReceber.length,
+      'cobravel hoje: ' + A.money(totalReceber) + (totalReceberFut ? ' · projetado: ' + A.money(totalReceberFut) : ''));
     html += '<div class="dia-sec" data-sec="receber"' + (aberto.receber ? '' : ' style="display:none"') + '>';
-    if (!aReceber.length) {
+    if (!aReceber.length && !aReceberFut.length) {
       html += A.empty('Nada a receber pendente', 'Entradas pendentes/parciais aparecem aqui.', 'money');
     } else {
-      html += '<div class="dia-tot green" id="dia-tot-receber">Total a receber: ' + A.money(totalReceber) + '</div>';
-      html += aReceber.map(linhaReceber).join('');
+      // BLOCO 1 — dinheiro que ja pode ser cobrado (trabalho feito/rolando)
+      html += '<div class="dia-blk-ttl" style="font-size:13px;font-weight:800;color:var(--warm);margin:0 0 6px">🟢 Cobravel agora (trabalho feito)</div>';
+      if (!aReceber.length) {
+        html += '<div class="dia-note" style="color:var(--muted);font-weight:500">Nada pra cobrar hoje.</div>';
+      } else {
+        html += '<div class="dia-tot green" id="dia-tot-receber">Cobravel hoje: ' + A.money(totalReceber) + '</div>';
+        html += aReceber.map(function (c) { return linhaReceber(c, false); }).join('');
+      }
+      // BLOCO 2 — receita projetada de job que ainda nao aconteceu
+      if (aReceberFut.length) {
+        html += '<div class="dia-blk-ttl" style="font-size:13px;font-weight:800;color:var(--warm);margin:14px 0 6px">📌 Projetado (job ainda nao feito)</div>';
+        html += '<div class="dia-tot gray" id="dia-tot-receber-fut" style="background:#f1ece6;color:var(--muted)">Projetado: ' + A.money(totalReceberFut) + '</div>';
+        html += '<div class="dia-note" style="color:var(--muted);font-weight:500">Ainda nao e dinheiro seu — o job nao foi feito. Nao contar como caixa.</div>';
+        html += aReceberFut.map(function (c) { return linhaReceber(c, true); }).join('');
+      }
     }
     html += '</div>';
 
@@ -1217,16 +1287,20 @@
     if (d.length > 60) d = d.slice(0, 57) + '…';
     return d;
   }
-  function linhaPagar(c) {
+  function linhaPagar(c, futuro) {
     var sub = subDePagar(c);
-    var semW9 = sub && sub.w9 === false;
+    // W9 so alerta em dinheiro que esta pra sair AGORA — em job futuro virava alarme falso
+    var semW9 = !futuro && sub && sub.w9 === false;
+    var job = c.job_id ? JOBIX[c.job_id] : null;
     var quem = c.pago_para || (sub && sub.nome) || '—';
-    return '<div class="dia-fin">' +
+    return '<div class="dia-fin' + (futuro ? ' futuro' : '') + '"' + (futuro ? ' style="opacity:.72"' : '') + '>' +
       '<div class="dia-fin-main">' +
       '<div class="t1">' + A.esc(quem) +
-      (semW9 ? ' <span class="badge red">⚠ SEM W9</span>' : '') + '</div>' +
+      (semW9 ? ' <span class="badge red">⚠ SEM W9</span>' : '') +
+      (futuro && job ? ' <span class="badge warm">' + A.esc(job.status) + '</span>' : '') + '</div>' +
       '<div class="t2">' + A.esc(c.cliente || descCurta(c) || '—') +
-      (c.status === 'parcial' ? ' · <b style="color:var(--orange)">parcial</b>' : ' · pendente') +
+      (futuro ? ' · <b style="color:var(--muted)">ainda nao feito</b>'
+        : c.status === 'parcial' ? ' · <b style="color:var(--orange)">parcial</b>' : ' · pendente') +
       '</div>' +
       '<div class="dia-fin-acts">' +
       '<button class="btn green sm dia-act" data-pagar-pago="' + A.esc(c.id) + '">✔ Paguei</button>' +
@@ -1234,17 +1308,20 @@
       '<button class="btn danger sm dia-act" data-pagar-del="' + A.esc(c.id) + '">🗑 remover</button>' +
       '</div>' +
       '</div>' +
-      '<b class="dia-fin-vl red">' + A.money(c.valor) + '</b>' +
+      '<b class="dia-fin-vl ' + (futuro ? 'gray' : 'red') + '"' + (futuro ? ' style="color:var(--muted)"' : '') + '>' + A.money(c.valor) + '</b>' +
       '</div>';
   }
 
   /* ---- SECAO 4: linha a receber ---- */
-  function linhaReceber(c) {
-    return '<div class="dia-fin">' +
+  function linhaReceber(c, futuro) {
+    var job = c.job_id ? JOBIX[c.job_id] : null;
+    return '<div class="dia-fin' + (futuro ? ' futuro' : '') + '"' + (futuro ? ' style="opacity:.72"' : '') + '>' +
       '<div class="dia-fin-main">' +
-      '<div class="t1">' + A.esc(c.cliente || descCurta(c) || '—') + '</div>' +
+      '<div class="t1">' + A.esc(c.cliente || descCurta(c) || '—') +
+      (futuro && job ? ' <span class="badge warm">' + A.esc(job.status) + '</span>' : '') + '</div>' +
       '<div class="t2">' + A.esc(descCurta(c) || 'entrada') +
-      (c.status === 'parcial' ? ' · <b style="color:var(--orange)">parcial</b>' : ' · pendente') +
+      (futuro ? ' · <b style="color:var(--muted)">job ainda nao feito</b>'
+        : c.status === 'parcial' ? ' · <b style="color:var(--orange)">parcial</b>' : ' · pendente') +
       (c.data ? ' · ' + A.esc(A.fmtData(c.data)) : '') +
       '</div>' +
       '<div class="dia-fin-acts">' +
@@ -1252,7 +1329,7 @@
       '<button class="btn sec sm dia-act" data-receber-edit="' + A.esc(c.id) + '">✎ valor</button>' +
       '</div>' +
       '</div>' +
-      '<b class="dia-fin-vl green">' + A.money(c.valor) + '</b>' +
+      '<b class="dia-fin-vl ' + (futuro ? 'gray' : 'green') + '"' + (futuro ? ' style="color:var(--muted)"' : '') + '>' + A.money(c.valor) + '</b>' +
       '</div>';
   }
 
@@ -1328,7 +1405,7 @@
   // priorizado por dinheiro (valor desc dentro de cada grupo).
   //   1) 💵 COBRAR CLIENTE — entradas pendentes/parciais de jobs FECHADOS vencidas
   //   2) 💸 PAGAR SUB     — trabalho CONCLUIDO com repasse em aberto
-  //   3) ⚠️ W9            — sub sem W9 com repasse pendente (NUNCA pagar antes)
+  //   3) ⚠️ W9            — sub sem W9 que JA RECEBEU dinheiro (risco no 1099)
   var PV_FECHADO = ['schedule', 'prep', 'in progress', 'blocker', 'review', 'done'];
   function pvJobFechado(j) {
     return !!j && PV_FECHADO.indexOf(String(j.status || '').toLowerCase().trim()) >= 0;
@@ -1400,10 +1477,13 @@
     });
     pagar.sort(pvValorDesc);
 
-    /* --- 3) W9 — sub sem W9 com repasse pendente --- */
+    /* --- 3) W9 — sub sem W9 que JA RECEBEU dinheiro --- */
+    // PORQUE: o risco do W9 e o que ja SAIU (deducao no fim do ano). Somar repasse
+    // pendente aqui fazia sub aparecer devendo W9 por trabalho que nem comecou.
     var w9map = {};
     function addW9(sub, valor) {
       if (!sub || sub.w9 !== false) return;
+      if (!(Number(valor || 0) > 0)) return;
       var k = String(sub.id || sub.nome || '');
       if (!k) return;
       if (!w9map[k]) w9map[k] = { sub: sub, valor: 0 };
@@ -1411,10 +1491,10 @@
     }
     (caixa || []).forEach(function (c) {
       if (c.tipo !== 'repasse') return;
-      if (c.status !== 'pendente' && c.status !== 'parcial') return;
+      if (c.status !== 'pago') return; // SO o que ja foi pago de verdade (nunca pendente/cancelado)
       addW9(subDePagar(c), c.valor);
     });
-    pagar.forEach(function (it) { if (it.woId) addW9(it.subObj, it.valor); });
+    // caixa e a fonte de verdade do dinheiro — nao somar work_orders.pago_ao_sub aqui (duplicaria)
     var w9 = Object.keys(w9map).map(function (k) { return w9map[k]; }).sort(pvValorDesc);
 
     return { cobrar: cobrar, pagar: pagar, w9: w9 };
@@ -1516,7 +1596,7 @@
     return '<div class="pv-item w9 ds-card" style="border-left-width:6px">' +
       '<div class="pv-main">' +
       '<div class="pv-t1"><span class="badge red">⚠ SEM W9</span> ' + A.esc(x.sub.nome || x.sub.id) + '</div>' +
-      '<div class="pv-t2">repasse pendente — cobrar o W9 ANTES de pagar</div>' +
+      '<div class="pv-t2">ja pago sem W9 na mao — cobrar o W9 (desconto do fim do ano depende disso)</div>' +
       '</div>' +
       '<b class="pv-vl amber">' + A.money(x.valor) + '</b></div>';
   }

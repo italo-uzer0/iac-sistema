@@ -409,47 +409,85 @@
       inner + '</section>';
   }
 
+  /* ---- DIVIDA x COMPROMISSO FUTURO -------------------------------------
+     Repasse de trabalho JA EXECUTADO e divida (pode cobrar/pagar hoje).
+     Repasse de trabalho que ainda nao aconteceu e custo FUTURO — o job pode
+     ate ser cancelado. Somar os dois no mesmo numero fez o Italo achar que
+     devia varias vezes mais do que deve. Por isso ficam SEPARADOS. */
+  var JOB_EXECUTADO = { 'Done': 1, 'In progress': 1 };
+  function trabalhoFeito(w, jobSt) {
+    if (String(w.status || '') === 'Concluido') return true;
+    return !!JOB_EXECUTADO[(jobSt || {})[w.job_id] || ''];
+  }
+  function faltaPagar(w) {
+    // WO cancelada nao gera dinheiro nenhum — nem divida, nem custo futuro.
+    if (String(w.status || '') === 'Cancelado') return 0;
+    return Math.max(0, Number(w.valor_repasse || 0) - Number(w.pago_ao_sub || 0));
+  }
+
   /* ---- VISTA POR GUY: uma faixa por pessoa, com o que ela tem pela frente ---- */
-  function secaoPorGuy(list, prog, hoje0) {
-    if (!list.length) return '';
+  // list  = WOs vivas (o que aparece como agenda do guy)
+  // todas = TODAS as WOs visiveis, inclusive as concluidas — sem elas a divida
+  //         real (trabalho feito e nao pago) nao existiria em lugar nenhum.
+  function secaoPorGuy(list, todas, prog, hoje0, jobSt) {
+    var naLista = {};
+    list.forEach(function (w) { naLista[w.id] = 1; });
     var porSub = {}, ordem = [];
-    list.forEach(function (w) {
+    todas.forEach(function (w) {
       var k = String(w.sub_id || '__sem');
       if (!porSub[k]) { porSub[k] = []; ordem.push(k); }
       porSub[k].push(w);
     });
-    // quem tem trabalho mais cedo aparece primeiro
-    ordem.sort(function (a, b) {
-      var da = porSub[a].map(function (w) { return A.parseISO(w.data); }).filter(Boolean).sort(function (x, y) { return x - y; })[0];
-      var db = porSub[b].map(function (w) { return A.parseISO(w.data); }).filter(Boolean).sort(function (x, y) { return x - y; })[0];
-      if (da && db) return da - db;
-      return da ? -1 : (db ? 1 : 0);
+    var cards = ordem.map(function (k) {
+      var ws = porSub[k].filter(function (w) { return naLista[w.id]; }).sort(ordenarWos);
+      var aPagar = 0, comprometido = 0, divida = [];
+      porSub[k].forEach(function (w) {
+        var f = faltaPagar(w);
+        if (!f) return;
+        if (trabalhoFeito(w, jobSt)) {
+          aPagar += f;
+          if (!naLista[w.id]) divida.push(w);   // ja concluida: nao aparece na agenda
+        } else {
+          comprometido += f;
+        }
+      });
+      var prim = ws.map(function (w) { return A.parseISO(w.data); })
+        .filter(Boolean).sort(function (x, y) { return x - y; })[0];
+      return { sub: k, ws: ws, divida: divida.sort(ordenarWos), aPagar: aPagar, comprometido: comprometido, prim: prim };
+    }).filter(function (c) { return c.ws.length || c.divida.length; });
+    if (!cards.length) return '';
+    // quem tem trabalho mais cedo aparece primeiro; quem so tem divida vai pro fim
+    cards.sort(function (a, b) {
+      if (a.prim && b.prim) return a.prim - b.prim;
+      return a.prim ? -1 : (b.prim ? 1 : 0);
     });
-    return ordem.map(function (k) {
-      var ws = porSub[k].slice().sort(ordenarWos);
-      var tot = 0, temV = false;
-      ws.forEach(function (w) { if (w.valor_repasse) { tot += Number(w.valor_repasse); temV = true; } });
-      var aPagar = 0;
-      ws.forEach(function (w) { aPagar += Math.max(0, Number(w.valor_repasse || 0) - Number(w.pago_ao_sub || 0)); });
-      var sub = (A.cache.subs || []).filter(function (s) { return s.id === k; })[0];
+    return cards.map(function (c) {
+      var sub = (A.cache.subs || []).filter(function (s) { return s.id === c.sub; })[0];
       var semW9 = sub && sub.w9 === false ? ' <span class="badge red">⚠ SEM W9</span>' : '';
-      var linhas = ws.map(function (w) {
-        var p = prog[w.id] || { done: 0, total: 0 };
-        return '<a class="wov-gl" href="#/wo/' + A.esc(w.id) + '">' +
-          '<span class="wov-gl-d">' + chipDia(w, hoje0) + '</span>' +
-          '<span class="wov-gl-c">' + A.esc(w.cliente || '—') +
-          '<span class="wov-gl-s">' + A.esc(String(w.servico || '').slice(0, 90)) + '</span></span>' +
-          (p.total ? '<span class="wov-ptx">✓' + p.done + '/' + p.total + '</span>' : '') +
-          '<span class="wov-rep">' + A.money(w.valor_repasse) + '</span>' +
-          pagBadgeHtml(w) + '</a>';
-      }).join('');
+      var linhas = c.ws.map(function (w) { return guyLinha(w, prog, hoje0); }).join('');
+      if (c.divida.length) {
+        linhas += '<div class="wov-gl-div">💸 A PAGAR — trabalho já feito</div>' +
+          c.divida.map(function (w) { return guyLinha(w, prog, hoje0); }).join('');
+      }
       return '<div class="card wov-guycard">' +
-        '<div class="wov-guyhead">' + guyChip(k, ' wov-guy-big') + semW9 +
+        '<div class="wov-guyhead">' + guyChip(c.sub, ' wov-guy-big') + semW9 +
         '<span class="grow"></span>' +
-        '<span class="wov-guyn">' + ws.length + (ws.length === 1 ? ' trabalho' : ' trabalhos') + '</span>' +
-        (temV ? '<span class="wov-rep">' + A.money(tot) + (aPagar > 0 ? ' <span class="wov-apagar">(' + A.money(aPagar) + ' a pagar)</span>' : '') + '</span>' : '') +
+        // guy que so aparece por causa da divida nao tem agenda: nao mostrar "0 trabalhos"
+        (c.ws.length ? '<span class="wov-guyn">' + c.ws.length + (c.ws.length === 1 ? ' trabalho' : ' trabalhos') + '</span>' : '') +
+        (c.aPagar > 0 ? '<span class="wov-apagar" title="Trabalho já executado e ainda não pago — é isso que você deve">💸 A pagar ' + A.money(c.aPagar) + '</span>' : '') +
+        (c.comprometido > 0 ? '<span class="wov-compr" title="Trabalho ainda não executado — não é dívida, é custo que vem">📅 Futuro ' + A.money(c.comprometido) + '</span>' : '') +
         '</div>' + linhas + '</div>';
     }).join('');
+  }
+  function guyLinha(w, prog, hoje0) {
+    var p = prog[w.id] || { done: 0, total: 0 };
+    return '<a class="wov-gl" href="#/wo/' + A.esc(w.id) + '">' +
+      '<span class="wov-gl-d">' + chipDia(w, hoje0) + '</span>' +
+      '<span class="wov-gl-c">' + A.esc(w.cliente || '—') +
+      '<span class="wov-gl-s">' + A.esc(String(w.servico || '').slice(0, 90)) + '</span></span>' +
+      (p.total ? '<span class="wov-ptx">✓' + p.done + '/' + p.total + '</span>' : '') +
+      '<span class="wov-rep">' + A.money(w.valor_repasse) + '</span>' +
+      pagBadgeHtml(w) + '</a>';
   }
 
   function desenharLista(root, wos, prog, jobSt) {
@@ -504,7 +542,8 @@
           '</div>';
       }
       if (fFiltro.vista === 'guy') {
-        html += secaoPorGuy(ativas, prog, hoje0);
+        // passa 'vis' (inclui as concluidas) so pro calculo do que ele DEVE
+        html += secaoPorGuy(ativas, vis, prog, hoje0, jobSt);
       } else {
         html += secaoHtml('👔 EDU — GERENTE', 'wov-sec-edu', edu, prog, hoje0, estaR[1]);
         html += secaoHtml('👷 GUYS', 'wov-sec-guys', guys, prog, hoje0, estaR[1]);
