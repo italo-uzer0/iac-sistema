@@ -25,6 +25,9 @@
     color:var(--ink2);margin:22px 4px 10px;display:flex;align-items:center;gap:8px}
   .sec-title.hoje{color:var(--orange)}
   .sec-title .pill{background:var(--orange);color:#fff;border-radius:20px;padding:2px 9px;font-size:11px}
+  /* trabalho fechado mas com a data ainda presa a outra etapa */
+  .nodate-note{font-size:12.5px;line-height:1.45;color:var(--ink2);background:var(--card);
+    border:1px dashed var(--line2,#ddd0c2);border-radius:12px;padding:10px 12px;margin:0 4px 10px}
   .day{margin-bottom:14px}
   .day-h{font-size:13px;font-weight:800;color:var(--ink);margin:0 4px 7px;display:flex;
     align-items:center;gap:8px}
@@ -107,7 +110,13 @@ async function load(){
 
 function render(data, isDemo){
   document.getElementById('who').textContent = 'Agenda — ' + (data.sub&&data.sub.nome || 'Guy');
-  var wos=(data.wos||[]).slice().filter(w=>w.data).sort((a,b)=> (a.data+ (a.hora||'')).localeCompare(b.data+(b.hora||'')));
+  var todas=(data.wos||[]).slice();
+  // Trabalho JA FECHADO mas ainda SEM DATA (ex.: espera o cliente terminar uma
+  // etapa, ou depende de outro sub acabar antes). Antes o filtro `w.data` jogava
+  // esses fora e o guy simplesmente nao sabia que existiam. Agora eles ganham
+  // secao propria no fim da agenda.
+  var semData=todas.filter(w=>!w.data);
+  var wos=todas.filter(w=>w.data).sort((a,b)=> (a.data+ (a.hora||'')).localeCompare(b.data+(b.hora||'')));
   var today=ymd(new Date());
   // fim da semana (domingo)
   var td=new Date(today+'T00:00:00'); var endWeek=new Date(td); endWeek.setDate(td.getDate()+(7-td.getDay())%7); var ew=ymd(endWeek);
@@ -143,12 +152,19 @@ function render(data, isDemo){
     });
   }
 
+  // fechados, mas a data ainda depende de alguma coisa acontecer antes
+  if(semData.length){
+    h+='<div class="sec-title">⏳ Ainda sem data <span class="pill">'+semData.length+'</span></div>';
+    h+='<div class="nodate-note">Esses trabalhos já são seus. A data ainda não fechou porque depende de outra etapa terminar antes. O Edu avisa quando marcar.</div>';
+    semData.forEach(w=>h+=card(w));
+  }
+
   if(passados.length){
     h+='<div class="sec-title">✅ Anteriores</div>';
     passados.slice(-6).reverse().forEach(w=>h+=card(w,true));
   }
 
-  if(!wos.length) h='<div class="empty-state">Nenhum trabalho agendado ainda.<br>Quando o Italo agendar, aparece aqui.</div>';
+  if(!wos.length && !semData.length) h='<div class="empty-state">Nenhum trabalho agendado ainda.<br>Quando o Italo agendar, aparece aqui.</div>';
   document.getElementById('view').innerHTML=h;
 }
 
