@@ -110,7 +110,13 @@ async function load(){
 
 function render(data, isDemo){
   document.getElementById('who').textContent = 'Agenda — ' + (data.sub&&data.sub.nome || 'Guy');
-  var todas=(data.wos||[]).slice();
+  // O RPC guy_agenda devolve TODAS as WOs do sub, inclusive as CANCELADAS
+  // (o SQL filtra so por sub_id). Sem este filtro, trabalho cancelado continua
+  // aparecendo na agenda do guy como se ainda existisse — foi o que aconteceu
+  // com a WO do Brian Courtney, cancelada em 28/07 e ainda visivel em 05/08.
+  var todas=(data.wos||[]).slice().filter(function(w){
+    return !/cancel/i.test(String(w.status||''));
+  });
   // Trabalho JA FECHADO mas ainda SEM DATA (ex.: espera o cliente terminar uma
   // etapa, ou depende de outro sub acabar antes). Antes o filtro `w.data` jogava
   // esses fora e o guy simplesmente nao sabia que existiam. Agora eles ganham
