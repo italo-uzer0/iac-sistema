@@ -445,6 +445,50 @@ body {
   .i-tel  { background: rgba(120, 175, 255, .16); }
 }
 
+/* ============================================================================
+   BARRA DO GERENTE — mensagem e ligacao em UM toque, no topo de toda WO.
+   Regra do Italo (05/08/2026): o sub esta no celular, muitas vezes de luva e
+   dentro da casa do cliente. Procurar telefone na agenda e o que faz ele nao
+   ligar e decidir sozinho errado. Os links sms: e tel: sao nativos: abrem o
+   app de mensagem e o discador direto, sem copiar numero.
+   ============================================================================ */
+.mgr-bar {
+  background: var(--card, #fff);
+  border: 1px solid rgba(61, 43, 31, .12);
+  border-radius: 16px;
+  padding: 12px 14px 13px;
+  margin: 0 0 14px;
+  box-shadow: 0 2px 10px rgba(61, 43, 31, .06);
+}
+.mgr-who { font-size: 12.5px; font-weight: 700; color: #6b5a4c; margin-bottom: 9px; letter-spacing: .01em; }
+.mgr-who b { color: #3D2B1F; font-weight: 800; }
+.mgr-btns { display: flex; gap: 9px; }
+.mgr-btn {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 13px 10px;
+  border-radius: 13px;
+  font-size: 13.5px; font-weight: 800; letter-spacing: .02em;
+  text-decoration: none;
+  border: 1.5px solid transparent;
+  transition: transform .08s ease, filter .12s ease;
+  min-height: 46px;            /* alvo de toque confortavel com luva */
+}
+.mgr-btn span { line-height: 1; }
+.mgr-btn.msg { background: #F5EDE4; color: #3D2B1F; border-color: rgba(212, 114, 42, .35); }
+.mgr-btn.call { background: #D4722A; color: #fff; }
+.mgr-btn:active { transform: scale(.97); filter: brightness(.96); }
+
+@media (max-width: 360px) {
+  .mgr-btn { font-size: 12px; padding: 12px 6px; gap: 5px; }
+}
+@media (prefers-color-scheme: dark) {
+  .mgr-bar { background: rgba(245, 237, 228, .06); border-color: rgba(245, 237, 228, .14); box-shadow: none; }
+  .mgr-who { color: #cbb9a8; }
+  .mgr-who b { color: #F5EDE4; }
+  .mgr-btn.msg { background: rgba(245, 237, 228, .12); color: #F5EDE4; border-color: rgba(212, 114, 42, .45); }
+}
+
 </style>
 </head>
 <body>
@@ -928,6 +972,46 @@ window.IAC_CFG = {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // GERENTE — quem o sub chama quando tem duvida. Regra do Italo (05/08/2026):
+  // TODA work order abre com um jeito de mandar mensagem e de ligar pro gerente,
+  // em UM toque, antes de qualquer outra coisa da tela. O sub esta no celular,
+  // muitas vezes de luva e dentro da casa do cliente: procurar telefone na agenda
+  // e o que faz ele nao ligar e decidir sozinho errado.
+  // Trocar o gerente = trocar so estas duas linhas.
+  // ---------------------------------------------------------------------------
+  var GERENTE = { nome: 'Edu', tel: '+18482183717', label: '(848) 218-3717' };
+
+  // Barra de contato do gerente. `sms:` e `tel:` sao links nativos: no celular
+  // abrem o app de mensagem e o discador direto, sem copiar numero.
+  //
+  // NOTA: o RPC `wo_get` NAO devolve o sub_id (so campos sub-safe da WO), entao
+  // nao da pra saber com certeza quem esta abrindo. A heuristica abaixo usa o
+  // unico sinal disponivel: as WOs do proprio gerente sempre vem marcadas com
+  // (INICIO) / (FECHAMENTO) no nome do cliente, ou com "voce gerencia" no
+  // servico. Se a heuristica falhar, o pior caso e o Edu ver o proprio contato,
+  // o que nao quebra nada. Quando o `sub` passar a vir do banco, o primeiro
+  // teste resolve sozinho.
+  function ehDoGerente(w) {
+    var s = String((w && w.sub) || (w && w.sub_id) || '').toLowerCase();
+    if (s) return s === 'edu';
+    var cli = String((w && w.cliente) || '');
+    var svc = String((w && w.servico) || '');
+    return /\((IN[ÍI]CIO|FECHAMENTO)\)/i.test(cli) || /voc[eê] gerencia|abrir o (job|projeto)/i.test(svc);
+  }
+
+  function barraGerente(w) {
+    // o proprio gerente abrindo a WO dele nao precisa de botao pra si mesmo
+    if (ehDoGerente(w)) return '';
+    var q = T.mgrAsk ? encodeURIComponent(T.mgrAsk) : '';
+    return '<div class="mgr-bar">' +
+      '<div class="mgr-who">' + esc(T.mgrLabel) + ' <b>' + esc(GERENTE.nome) + '</b> · ' + esc(GERENTE.label) + '</div>' +
+      '<div class="mgr-btns">' +
+      '<a class="mgr-btn msg" href="sms:' + GERENTE.tel + (q ? '?&body=' + q : '') + '">💬 <span>' + esc(T.mgrMsg) + '</span></a>' +
+      '<a class="mgr-btn call" href="tel:' + GERENTE.tel + '">📞 <span>' + esc(T.mgrCall) + '</span></a>' +
+      '</div></div>';
+  }
+
   function linkify(s) {
     return esc(s).replace(/(https?:\/\/[^\s<]+)/g, function (u) {
       var label = /maps\.google|goo\.gl\/maps/.test(u)
@@ -1072,7 +1156,8 @@ window.IAC_CFG = {
       addCal: 'ADICIONAR A MINHA AGENDA',
       calDetails: 'Dúvida? Italo (848) 234-0283', calLink: 'Seu portal',
       rtStop: 'Parada', rtDone: 'concluída',
-      rtDay: 'Roteiro do dia', rtStopOne: 'parada', rtStopMany: 'paradas'
+      rtDay: 'Roteiro do dia', rtStopOne: 'parada', rtStopMany: 'paradas',
+      mgrLabel: 'Dúvida? Fale com', mgrMsg: 'MANDAR MENSAGEM', mgrCall: 'LIGAR', mgrAsk: ''
     },
     en: {
       yourJob: 'Your job', scope: 'Scope of work', checklist: 'Checklist',
@@ -1094,7 +1179,8 @@ window.IAC_CFG = {
       addCal: 'ADD TO MY CALENDAR',
       calDetails: 'Questions? Italo (848) 234-0283', calLink: 'Your portal',
       rtStop: 'Stop', rtDone: 'done',
-      rtDay: 'Route for the day', rtStopOne: 'stop', rtStopMany: 'stops'
+      rtDay: 'Route for the day', rtStopOne: 'stop', rtStopMany: 'stops',
+      mgrLabel: 'Questions? Contact', mgrMsg: 'SEND MESSAGE', mgrCall: 'CALL', mgrAsk: ''
     },
     es: {
       yourJob: 'Tu trabajo', scope: 'Alcance del trabajo', checklist: 'Lista de tareas',
@@ -1116,7 +1202,8 @@ window.IAC_CFG = {
       addCal: 'AGREGAR A MI CALENDARIO',
       calDetails: '¿Dudas? Italo (848) 234-0283', calLink: 'Tu portal',
       rtStop: 'Parada', rtDone: 'lista',
-      rtDay: 'Ruta del día', rtStopOne: 'parada', rtStopMany: 'paradas'
+      rtDay: 'Ruta del día', rtStopOne: 'parada', rtStopMany: 'paradas',
+      mgrLabel: '¿Dudas? Habla con', mgrMsg: 'ENVIAR MENSAJE', mgrCall: 'LLAMAR', mgrAsk: ''
     }
   };
 
@@ -1189,6 +1276,9 @@ window.IAC_CFG = {
     var heroSub = isRoteiro
       ? (T.rtDay + ' · ' + nStops + ' ' + (nStops === 1 ? T.rtStopOne : T.rtStopMany))
       : W.servico;
+    // Barra do gerente ANTES de tudo: mensagem e ligacao em um toque. Regra do
+    // Italo (05/08) — o sub tem que conseguir falar com o Edu sem sair da tela.
+    h += barraGerente(W);
     h += '<div class="guy-hero">' +
       '<div class="svc"><div class="ico">' + ic(svcIcon, 26) + '</div>' +
       '<div><h1>' + esc(heroTitle) + '</h1><div class="s">' + esc(heroSub) + '</div></div></div>';
